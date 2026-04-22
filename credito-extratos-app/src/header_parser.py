@@ -16,31 +16,50 @@ class HeaderInfo:
 
 
 BANK_PATTERNS = [
-    "itaú", "itau", "bradesco", "santander", "caixa", "banco do brasil", "nubank",
-    "inter", "sicredi", "sicoob", "picpay", "mercado pago", "c6", "btg", "original"
+    "itaú",
+    "itau",
+    "bradesco",
+    "santander",
+    "caixa",
+    "banco do brasil",
+    "nubank",
+    "inter",
+    "sicredi",
+    "sicoob",
+    "picpay",
+    "mercado pago",
+    "c6",
+    "btg",
+    "original",
 ]
-
 CPF_PATTERN = r"\d{3}\.\d{3}\.\d{3}-\d{2}"
 
 
 def parse_header(text_pages: list[str]) -> HeaderInfo:
+    first_page = text_pages[0] if text_pages else ""
     header_text = "\n".join(text_pages[:2])
 
     info = HeaderInfo()
-    lower_text = header_text.lower()
-
-    for bank in BANK_PATTERNS:
-        if bank in lower_text:
-            info.bank_name = bank.title()
-            break
-
-    info.account_holder = _extract_holder(header_text)
-    info.agency = _extract_agency(header_text)
-    info.account_number = _extract_account(header_text)
-    info.statement_period = _extract_period(header_text)
+    info.bank_name = _detect_bank(header_text, first_page)
+    info.account_holder = _extract_holder(first_page or header_text)
+    info.agency = _extract_agency(first_page or header_text)
+    info.account_number = _extract_account(first_page or header_text)
+    info.statement_period = _extract_period(first_page or header_text)
 
     return info
 
+
+def _detect_bank(header_text: str, first_page: str) -> str:
+    first_page_lower = first_page.lower()
+    header_lower = header_text.lower()
+
+    if "nubank.com.br" in header_lower or "movimentações" in header_lower:
+        return "Nubank"
+
+    for bank in BANK_PATTERNS:
+        if bank in first_page_lower:
+            return bank.title()
+    return ""
 
 
 def _extract_holder(header_text: str) -> str:
@@ -57,13 +76,19 @@ def _extract_holder(header_text: str) -> str:
             continue
 
         groups = [normalize_text(group) for group in match.groups() if group]
-        candidate = next((group for group in groups if re.search(r"[A-Za-zÀ-ÿ]", group) and not re.fullmatch(CPF_PATTERN, group)), "")
+        candidate = next(
+            (
+                group
+                for group in groups
+                if re.search(r"[A-Za-zÀ-ÿ]", group) and not re.fullmatch(CPF_PATTERN, group)
+            ),
+            "",
+        )
 
         if _looks_like_person_name(candidate):
             return candidate
 
     return ""
-
 
 
 def _extract_agency(header_text: str) -> str:
@@ -80,7 +105,6 @@ def _extract_agency(header_text: str) -> str:
     return ""
 
 
-
 def _extract_account(header_text: str) -> str:
     account_patterns = [
         r"(?:conta(?: corrente)?|cc)\s*[:\-]?\s*([\d\.\-xX/]+)",
@@ -95,14 +119,12 @@ def _extract_account(header_text: str) -> str:
     return ""
 
 
-
 def _extract_period(header_text: str) -> str:
     period_pattern = r"(?:periodo|período|extrato de)\s*[:\-]?\s*([0-9/\saAaté\-]+)"
     match = re.search(period_pattern, header_text, flags=re.IGNORECASE)
     if match:
         return normalize_text(match.group(1))
     return ""
-
 
 
 def _looks_like_person_name(value: str) -> bool:
@@ -115,7 +137,15 @@ def _looks_like_person_name(value: str) -> bool:
         return False
 
     forbidden_terms = {
-        "banco", "itau", "itaú", "agencia", "agência", "conta", "extrato", "periodo", "período"
+        "banco",
+        "itau",
+        "itaú",
+        "agencia",
+        "agência",
+        "conta",
+        "extrato",
+        "periodo",
+        "período",
     }
 
     lowered_tokens = {token.lower() for token in tokens}

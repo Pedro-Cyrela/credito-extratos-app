@@ -233,6 +233,8 @@ def infer_counterparty(description: str) -> str:
         return ""
 
     patterns = [
+        r"transfer[êe]ncia recebida pelo pix\s+(.*)$",
+        r"transfer[êe]ncia enviada pelo pix\s+(.*)$",
         r"(?:pix|ted|doc|transf(?:erencia)?)\s+(?:recebido|recebida)\s+de\s+(.*)$",
         r"(?:pix|ted|doc|transf(?:erencia)?)\s+(?:de|para)\s+(.*)$",
         r"(?:de)\s+([A-ZÀ-ÿ0-9\s\.-]{3,})$",
@@ -242,6 +244,9 @@ def infer_counterparty(description: str) -> str:
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return normalize_text(match.group(1))
+            candidate = normalize_text(match.group(1))
+            candidate = re.split(r"\s+-\s+[•\d]{3,}", candidate, maxsplit=1)[0]
+            candidate = re.split(r"\s+-\s+\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}", candidate, maxsplit=1)[0]
+            return normalize_text(candidate)
 
     return ""
