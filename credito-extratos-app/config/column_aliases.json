@@ -1,0 +1,52 @@
+{
+  "date": [
+    "data",
+    "dt",
+    "lançamento",
+    "lancamento",
+    "date"
+  ],
+  "description": [
+    "descrição",
+    "descricao",
+    "histórico",
+    "historico",
+    "complemento",
+    "movimentação",
+    "movimentacao",
+    "detalhe",
+    "favorecido",
+    "origem",
+    "nome"
+  ],
+  "credit": [
+    "crédito",
+    "credito",
+    "creditos",
+    "créditos",
+    "entrada",
+    "recebimento"
+  ],
+  "debit": [
+    "débito",
+    "debito",
+    "débito(s)",
+    "debito(s)",
+    "saída",
+    "saida",
+    "pagamento"
+  ],
+  "value": [
+    "valor",
+    "movimento",
+    "movimentação",
+    "movimentacao",
+    "amount",
+    "lançamento",
+    "lancamento"
+  ],
+  "balance": [
+    "saldo",
+    "balance"
+  ]
+}

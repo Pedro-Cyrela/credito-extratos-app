@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from .utils import normalize_text
+
+
+@dataclass
+class HeaderInfo:
+    bank_name: str = ""
+    account_holder: str = ""
+    account_number: str = ""
+    agency: str = ""
+    statement_period: str = ""
+
+
+BANK_PATTERNS = [
+    "itaú", "itau", "bradesco", "santander", "caixa", "banco do brasil", "nubank",
+    "inter", "sicredi", "sicoob", "picpay", "mercado pago", "c6", "btg", "original"
+]
+
+CPF_PATTERN = r"\d{3}\.\d{3}\.\d{3}-\d{2}"
+
+
+def parse_header(text_pages: list[str]) -> HeaderInfo:
+    header_text = "\n".join(text_pages[:2])
+
+    info = HeaderInfo()
+    lower_text = header_text.lower()
+
+    for bank in BANK_PATTERNS:
+        if bank in lower_text:
+            info.bank_name = bank.title()
+            break
+
+    info.account_holder = _extract_holder(header_text)
+    info.agency = _extract_agency(header_text)
+    info.account_number = _extract_account(header_text)
+    info.statement_period = _extract_period(header_text)
+
+    return info
+
+
+
+def _extract_holder(header_text: str) -> str:
+    holder_patterns = [
+        r"(?:titular|cliente|nome)\s*[:\-]\s*([A-ZÀ-ÿ][A-ZÀ-ÿ\s\.]{5,})",
+        rf"([A-ZÀ-Ý][A-ZÀ-Ý\s]{{5,}}?)\s+({CPF_PATTERN})",
+        rf"({CPF_PATTERN})\s+([A-ZÀ-Ý][A-ZÀ-Ý\s]{{5,}})",
+        r"^([A-ZÀ-Ý][A-ZÀ-Ý\s]{8,})$",
+    ]
+
+    for pattern in holder_patterns:
+        match = re.search(pattern, header_text, flags=re.IGNORECASE | re.MULTILINE)
+        if not match:
+            continue
+
+        groups = [normalize_text(group) for group in match.groups() if group]
+        candidate = next((group for group in groups if re.search(r"[A-Za-zÀ-ÿ]", group) and not re.fullmatch(CPF_PATTERN, group)), "")
+
+        if _looks_like_person_name(candidate):
+            return candidate
+
+    return ""
+
+
+
+def _extract_agency(header_text: str) -> str:
+    agency_patterns = [
+        r"(?:agencia|agência)\s*[:\-]?\s*(\d{3,6})",
+        r"(?:agencia|agência)\s+(\d{3,6})",
+    ]
+
+    for pattern in agency_patterns:
+        match = re.search(pattern, header_text, flags=re.IGNORECASE)
+        if match:
+            return normalize_text(match.group(1))
+
+    return ""
+
+
+
+def _extract_account(header_text: str) -> str:
+    account_patterns = [
+        r"(?:conta(?: corrente)?|cc)\s*[:\-]?\s*([\d\.\-xX/]+)",
+        r"(?:agencia|agência)\s*[:\-]?\s*\d{3,6}\s+(?:conta(?: corrente)?|cc)\s*[:\-]?\s*([\d\.\-xX/]+)",
+    ]
+
+    for pattern in account_patterns:
+        match = re.search(pattern, header_text, flags=re.IGNORECASE)
+        if match:
+            return normalize_text(match.group(1))
+
+    return ""
+
+
+
+def _extract_period(header_text: str) -> str:
+    period_pattern = r"(?:periodo|período|extrato de)\s*[:\-]?\s*([0-9/\saAaté\-]+)"
+    match = re.search(period_pattern, header_text, flags=re.IGNORECASE)
+    if match:
+        return normalize_text(match.group(1))
+    return ""
+
+
+
+def _looks_like_person_name(value: str) -> bool:
+    candidate = normalize_text(value)
+    if not candidate:
+        return False
+
+    tokens = [token for token in candidate.split() if len(token) >= 2]
+    if len(tokens) < 2:
+        return False
+
+    forbidden_terms = {
+        "banco", "itau", "itaú", "agencia", "agência", "conta", "extrato", "periodo", "período"
+    }
+
+    lowered_tokens = {token.lower() for token in tokens}
+    if lowered_tokens & forbidden_terms:
+        return False
+
+    alpha_ratio = sum(char.isalpha() or char.isspace() for char in candidate) / max(len(candidate), 1)
+    return alpha_ratio >= 0.75
