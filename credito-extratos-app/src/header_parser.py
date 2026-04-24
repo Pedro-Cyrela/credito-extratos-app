@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .utils import normalize_text
+from .utils import fold_text, normalize_text
 
 
 @dataclass
@@ -16,6 +16,7 @@ class HeaderInfo:
 
 
 BANK_PATTERNS = [
+    "bank of america",
     "itaú",
     "itau",
     "bradesco",
@@ -32,6 +33,12 @@ BANK_PATTERNS = [
     "btg",
     "original",
 ]
+BANK_DISPLAY_NAMES = {
+    "bank of america": "Bank of America",
+    "bradesco": "Bradesco",
+    "nubank": "Nubank",
+    "banco do brasil": "Banco do Brasil",
+}
 CPF_PATTERN = r"\d{3}\.\d{3}\.\d{3}-\d{2}"
 
 
@@ -41,10 +48,10 @@ def parse_header(text_pages: list[str]) -> HeaderInfo:
 
     info = HeaderInfo()
     info.bank_name = _detect_bank(header_text, first_page)
-    info.account_holder = _extract_holder(first_page or header_text)
-    info.agency = _extract_agency(first_page or header_text)
-    info.account_number = _extract_account(first_page or header_text)
-    info.statement_period = _extract_period(first_page or header_text)
+    info.account_holder = _extract_holder(header_text or first_page)
+    info.agency = _extract_agency(header_text or first_page)
+    info.account_number = _extract_account(header_text or first_page)
+    info.statement_period = _extract_period(header_text or first_page)
 
     return info
 
@@ -58,12 +65,14 @@ def _detect_bank(header_text: str, first_page: str) -> str:
 
     for bank in BANK_PATTERNS:
         if bank in first_page_lower:
-            return bank.title()
+            return BANK_DISPLAY_NAMES.get(bank, bank.title())
     return ""
 
 
 def _extract_holder(header_text: str) -> str:
     holder_patterns = [
+        r"(?:titular|cliente|nome)\s*[:\-]\s*([^\n\r]{5,})",
+        r"^([A-Z][A-Z\s\.]{5,})\s+bankofamerica\.com\b",
         r"(?:titular|cliente|nome)\s*[:\-]\s*([A-ZÀ-ÿ][A-ZÀ-ÿ\s\.]{5,})",
         rf"([A-ZÀ-Ý][A-ZÀ-Ý\s]{{5,}}?)\s+({CPF_PATTERN})",
         rf"({CPF_PATTERN})\s+([A-ZÀ-Ý][A-ZÀ-Ý\s]{{5,}})",
@@ -107,6 +116,7 @@ def _extract_agency(header_text: str) -> str:
 
 def _extract_account(header_text: str) -> str:
     account_patterns = [
+        r"account\s*(?:number|#)\s*[:#]?\s*([\d\s\-]+)",
         r"(?:conta(?: corrente)?|cc)\s*[:\-]?\s*([\d\.\-xX/]+)",
         r"(?:agencia|agência)\s*[:\-]?\s*\d{3,6}\s+(?:conta(?: corrente)?|cc)\s*[:\-]?\s*([\d\.\-xX/]+)",
     ]
@@ -120,6 +130,22 @@ def _extract_account(header_text: str) -> str:
 
 
 def _extract_period(header_text: str) -> str:
+    folded = fold_text(header_text)
+    bradesco_match = re.search(
+        r"movimentacao entre\s*:\s*(\d{2}/\d{2}/\d{4}\s+e\s+\d{2}/\d{2}/\d{4})",
+        folded,
+    )
+    if bradesco_match:
+        return normalize_text(bradesco_match.group(1))
+
+    foreign_match = re.search(
+        r"\bfor\s+([A-Za-z]+\s+\d{1,2},\s+\d{4}\s+to\s+[A-Za-z]+\s+\d{1,2},\s+\d{4})",
+        header_text,
+        flags=re.IGNORECASE,
+    )
+    if foreign_match:
+        return normalize_text(foreign_match.group(1))
+
     period_pattern = r"(?:periodo|período|extrato de)\s*[:\-]?\s*([0-9/\saAaté\-]+)"
     match = re.search(period_pattern, header_text, flags=re.IGNORECASE)
     if match:
@@ -138,6 +164,9 @@ def _looks_like_person_name(value: str) -> bool:
 
     forbidden_terms = {
         "banco",
+        "bank",
+        "bradesco",
+        "celular",
         "itau",
         "itaú",
         "agencia",

@@ -24,3 +24,42 @@ def test_parse_header_detects_nubank_before_counterparty_banks():
     assert header.account_holder == "Lucas Faria Malvao"
     assert header.agency == "0001"
     assert header.account_number == "33163745-6"
+
+
+def test_parse_header_handles_bradesco_celular_metadata():
+    text_pages = [
+        (
+            "Bradesco Celular\n"
+            "Data: 06/03/2026 - 13h30\n"
+            "Nome: WILLIAM VARGAS\n"
+            "Extrato de: Agencia: 3204 | Conta: 130776-2 | Movimentacao entre: 01/12/2025 e 28/02/2026\n"
+            "Data Historico Docto. Credito (R$) Debito (R$) Saldo (R$)\n"
+        )
+    ]
+
+    header = parse_header(text_pages)
+
+    assert header.bank_name == "Bradesco"
+    assert header.account_holder == "WILLIAM VARGAS"
+    assert header.agency == "3204"
+    assert header.account_number == "130776-2"
+    assert header.statement_period == "01/12/2025 e 28/02/2026"
+
+
+def test_parse_header_handles_bank_of_america_metadata():
+    text_pages = [
+        (
+            "MARIA A POSADA DUQUE bankofamerica.com\n"
+            "Bank of America, N.A.\n"
+            "Your combined statement\n"
+            "for January 22, 2026 to February 18, 2026\n"
+        ),
+        "MARIA A POSADA DUQUE ! Account # 4830 2436 2176 ! January 22, 2026 to February 18, 2026\n",
+    ]
+
+    header = parse_header(text_pages)
+
+    assert header.bank_name == "Bank of America"
+    assert header.account_holder == "MARIA A POSADA DUQUE"
+    assert header.account_number == "4830 2436 2176"
+    assert header.statement_period == "January 22, 2026 to February 18, 2026"

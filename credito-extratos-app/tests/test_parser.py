@@ -95,3 +95,74 @@ def test_parse_transactions_from_nubank_text_blocks_and_page_continuation():
     assert (result["descricao"] == "Aplicação RDB").sum() == 2
     assert result[result["descricao"] == "Aplicação RDB"]["valor"].tolist() == [-800.0, -100.0]
     assert result[result["descricao"].str.contains("JAQUELYNE", regex=False)].iloc[0]["valor"] == 50.0
+
+
+def test_parse_foreign_deposits_and_continued_sections():
+    text_pages = [
+        (
+            "Bank of America\n"
+            "Deposits and other additions\n"
+            "Date Description Amount\n"
+            "01/30/26 THEALCOVER709177 DES:PAYROLL ID:2451415 INDN:MARIA POSADA CO 553.63\n"
+            "ID:1179097700 PPD\n"
+            "02/02/26 PURCHASE REFUND AMAZON MKTPLACE 19.66\n"
+            "continued on the next page\n"
+            "Marketing line that must not become a transaction detail\n"
+        ),
+        (
+            "Deposits and other additions - continued\n"
+            "Date Description Amount\n"
+            "02/06/26 THEALCOVER709177 DES:PAYROLL ID:2451415 INDN:MARIA POSADA CO 411.78\n"
+            "Total deposits and other additions $985.07\n"
+        ),
+    ]
+
+    result = parse_transactions_from_text(text_pages, "foreign.pdf")
+
+    assert len(result) == 3
+    assert round(result["valor"].sum(), 2) == 985.07
+    assert result.iloc[0]["data"].strftime("%Y-%m-%d") == "2026-01-30"
+    assert "ID:1179097700 PPD" in result.iloc[0]["descricao"]
+    assert not result["descricao"].str.contains("Marketing line", regex=False).any()
+
+
+def test_parse_bradesco_word_layout_uses_physical_credit_debit_columns():
+    text_pages = [
+        (
+            "Bradesco Celular\n"
+            "Data Historico Docto. Credito (R$) Debito (R$) Saldo (R$)\n"
+            "TRANSFERENCIA PIX\n"
+            "03/12/2025 1346403 300,00 164,57\n"
+            "DES: Renata Cristina Fagun 03/12\n"
+            "04/12/2025 INSS 0043204 5.031,99 4.732,23\n"
+        )
+    ]
+    word_pages = [
+        _word_rows(
+            [
+                [("Data", 45), ("Historico", 110), ("Docto.", 304), ("Credito", 385), ("Debito", 452), ("Saldo", 520)],
+                [("TRANSFERENCIA", 110), ("PIX", 176)],
+                [("03/12/2025", 45), ("1346403", 303), ("300,00", 462), ("164,57", 532)],
+                [("DES:", 110), ("Renata", 130), ("Cristina", 160), ("Fagun", 195), ("03/12", 225)],
+                [("04/12/2025", 45), ("INSS", 110), ("0043204", 303), ("5.031,99", 398), ("4.732,23", 522)],
+            ]
+        )
+    ]
+
+    result = parse_transactions_from_text(text_pages, "bradesco.pdf", word_pages)
+
+    pix = result[result["descricao"].str.contains("Renata", regex=False)].iloc[0]
+    inss = result[result["descricao"] == "INSS"].iloc[0]
+    assert pix["valor"] == -300.0
+    assert pix["tipo_inferido"] == "debito"
+    assert inss["valor"] == 5031.99
+    assert inss["tipo_inferido"] == "credito"
+
+
+def _word_rows(rows):
+    words = []
+    for row_index, row in enumerate(rows):
+        top = 100 + (row_index * 12)
+        for text, x0 in row:
+            words.append({"text": text, "x0": x0, "x1": x0 + max(len(text) * 4, 4), "top": top})
+    return words

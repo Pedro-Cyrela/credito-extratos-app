@@ -34,8 +34,9 @@ def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_r
 
         table_dfs = tables_to_dataframes(pdf_doc.tables)
         parsed_from_tables = parse_transaction_tables(table_dfs, pdf_doc.filename)
-        parsed_from_text = parse_transactions_from_text(pdf_doc.text_pages, pdf_doc.filename)
-        combined = pd.concat([parsed_from_tables, parsed_from_text], ignore_index=True)
+        parsed_from_text = parse_transactions_from_text(pdf_doc.text_pages, pdf_doc.filename, pdf_doc.word_pages)
+        parsed_frames = [df for df in [parsed_from_tables, parsed_from_text] if not df.empty]
+        combined = pd.concat(parsed_frames, ignore_index=True) if parsed_frames else pd.DataFrame()
         combined = deduplicate_transactions(combined)
 
         transaction_frames.append(combined)
