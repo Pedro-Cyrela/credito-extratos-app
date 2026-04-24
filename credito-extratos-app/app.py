@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import streamlit as st
 
 from src.analysis_engine import analyze_uploaded_files
 from src.export_excel import build_excel_export
+from src.fx_ptax import FxQuote, fetch_ptax_sell_quote
 from src.monthly_summary import build_monthly_summary, calculate_global_metrics
 
 
@@ -53,6 +54,45 @@ def money(value: float, currency: str = "BRL") -> str:
         return brl(value)
     formatted = f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"{currency} {formatted}"
+
+
+@st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
+def get_latest_ptax_sell_quote(currency_code: str, reference_date: date) -> FxQuote | None:
+    for days_back in range(0, 10):
+        quote_date = reference_date - timedelta(days=days_back)
+        quote = fetch_ptax_sell_quote(currency_code, quote_date)
+        if quote:
+            return quote
+    return None
+
+
+def format_dual_amount(value: float, currency: str, fx_quote: FxQuote | None) -> str:
+    if not fx_quote or currency == "BRL":
+        return money(value, currency)
+    brl_value = float(value) * float(fx_quote.rate_brl_per_unit)
+    return f"{money(value, currency)} - {brl(brl_value)}"
+
+
+def calculate_brl_metrics_from_summary(summary_df: pd.DataFrame) -> dict[str, float]:
+    if summary_df.empty or "total_considerado_brl" not in summary_df.columns:
+        return {
+            "renda_media_mensal": 0.0,
+            "meses_analisados": 0,
+            "total_considerado": 0.0,
+            "qtd_creditos": 0,
+        }
+
+    total_considerado = float(pd.to_numeric(summary_df["total_considerado_brl"], errors="coerce").fillna(0).sum())
+    meses = int(len(summary_df))
+    media = total_considerado / meses if meses else 0.0
+    qtd_creditos = int(pd.to_numeric(summary_df["qtd_creditos_considerados"], errors="coerce").fillna(0).sum())
+
+    return {
+        "renda_media_mensal": round(media, 2),
+        "meses_analisados": meses,
+        "total_considerado": round(total_considerado, 2),
+        "qtd_creditos": qtd_creditos,
+    }
 
 
 
@@ -194,15 +234,19 @@ def render_transfer_editor(
     editor_df = df.copy().set_index("row_id")
     editor_df[action_label] = False
 
+    column_config: dict[str, st.column_config.BaseColumn] = {
+        action_label: st.column_config.CheckboxColumn(action_label),
+        "valor": st.column_config.NumberColumn("valor", format=value_format),
+    }
+    if "valor_brl" in editor_df.columns:
+        column_config["valor_brl"] = st.column_config.NumberColumn("valor_brl", format="R$ %.2f")
+
     edited_df = st.data_editor(
         editor_df,
         use_container_width=True,
         hide_index=False,
         disabled=[column for column in editor_df.columns if column != action_label],
-        column_config={
-            action_label: st.column_config.CheckboxColumn(action_label),
-            "valor": st.column_config.NumberColumn("valor", format=value_format),
-        },
+        column_config=column_config,
         key=editor_key,
     )
 
@@ -281,8 +325,24 @@ if result:
     st.subheader("Cabeçalho dos extratos")
     render_header_cards(headers_df)
 
-    is_foreign_statement, selected_currency = render_foreign_gate(headers_df, result)
-    display_currency = currency_code(selected_currency) if is_foreign_statement else "BRL"
+    fx_quote: FxQuote | None = None
+    with st.sidebar:
+        st.divider()
+        is_foreign_statement, selected_currency = render_foreign_gate(headers_df, result)
+
+        display_currency = currency_code(selected_currency) if is_foreign_statement else "BRL"
+        if is_foreign_statement and selected_currency:
+            fx_quote = get_latest_ptax_sell_quote(display_currency, date.today())
+            if fx_quote:
+                st.caption(
+                    "Cotacao PTAX venda ({}) - 1 {} = {}".format(
+                        fx_quote.requested_date.strftime("%d/%m/%Y"),
+                        display_currency,
+                        brl(float(fx_quote.rate_brl_per_unit)),
+                    )
+                )
+            else:
+                st.warning("Nao foi possivel obter cotacao PTAX para conversao em BRL (tentado hoje e dias anteriores).")
 
     if is_foreign_statement and not selected_currency:
         st.stop()
@@ -293,9 +353,40 @@ if result:
         headers_for_export["moeda_selecionada"] = selected_currency
         transactions_df = transactions_df.copy()
         transactions_df["moeda_extrato"] = display_currency
-        st.caption(f"Valores exibidos na moeda selecionada: {selected_currency}.")
+        if fx_quote:
+            transactions_df["cotacao_ptax_venda"] = float(fx_quote.rate_brl_per_unit)
+            transactions_df["data_cotacao_ptax"] = fx_quote.requested_date.strftime("%d/%m/%Y")
+            valor_numeric = pd.to_numeric(transactions_df["valor"], errors="coerce")
+            transactions_df["valor_brl"] = (valor_numeric * float(fx_quote.rate_brl_per_unit)).round(2)
+            headers_for_export["cotacao_ptax_venda"] = float(fx_quote.rate_brl_per_unit)
+            headers_for_export["data_cotacao_ptax"] = fx_quote.requested_date.strftime("%d/%m/%Y")
+
+        if fx_quote:
+            st.caption(
+                "Valores em {} com conversao para BRL via PTAX venda ({}).".format(
+                    display_currency,
+                    fx_quote.requested_date.strftime("%d/%m/%Y"),
+                )
+            )
+        else:
+            st.caption("Valores em {} (sem conversao automatica para BRL).".format(display_currency))
 
     recalculated_summary = build_monthly_summary(transactions_df)
+    if fx_quote and "valor_brl" in transactions_df.columns:
+        brl_base = transactions_df.copy()
+        brl_base["valor"] = pd.to_numeric(brl_base["valor_brl"], errors="coerce").fillna(0)
+        brl_summary = build_monthly_summary(brl_base)
+        brl_summary = brl_summary.rename(
+            columns={
+                "total_considerado": "total_considerado_brl",
+                "total_desconsiderado": "total_desconsiderado_brl",
+            }
+        )
+        brl_summary = brl_summary.drop(
+            columns=[c for c in ["qtd_creditos_considerados", "qtd_revisao"] if c in brl_summary.columns],
+            errors="ignore",
+        )
+        recalculated_summary = recalculated_summary.merge(brl_summary, on="mes_ref", how="left")
 
     if not recalculated_summary.empty:
         default_months = recalculated_summary["mes_ref"].tolist()
@@ -315,12 +406,39 @@ if result:
         filtered_summary = filtered_summary[filtered_summary["mes_ref"].isin(selected_months)].copy()
 
     filtered_metrics = calculate_global_metrics(filtered_summary)
+    filtered_metrics_brl = calculate_brl_metrics_from_summary(filtered_summary) if fx_quote else None
 
     st.subheader("Painel executivo")
     render_metrics(filtered_metrics, display_currency)
+    if filtered_metrics_brl and display_currency != "BRL":
+        st.caption(
+            "Renda media mensal: {} | Total considerado: {}".format(
+                format_dual_amount(float(filtered_metrics["renda_media_mensal"]), display_currency, fx_quote),
+                format_dual_amount(float(filtered_metrics["total_considerado"]), display_currency, fx_quote),
+            )
+        )
 
     st.subheader("Resumo mensal")
-    st.dataframe(filtered_summary, use_container_width=True, hide_index=True)
+    summary_value_format = "%.2f" if display_currency == "BRL" else f"{display_currency} %.2f"
+    summary_column_config: dict[str, st.column_config.BaseColumn] = {
+        "total_considerado": st.column_config.NumberColumn("total_considerado", format=summary_value_format),
+        "total_desconsiderado": st.column_config.NumberColumn("total_desconsiderado", format=summary_value_format),
+    }
+    if fx_quote and "total_considerado_brl" in filtered_summary.columns:
+        summary_column_config["total_considerado_brl"] = st.column_config.NumberColumn(
+            "total_considerado_brl", format="R$ %.2f"
+        )
+    if fx_quote and "total_desconsiderado_brl" in filtered_summary.columns:
+        summary_column_config["total_desconsiderado_brl"] = st.column_config.NumberColumn(
+            "total_desconsiderado_brl", format="R$ %.2f"
+        )
+
+    st.dataframe(
+        filtered_summary,
+        use_container_width=True,
+        hide_index=True,
+        column_config=summary_column_config,
+    )
 
     with st.expander("Resumo inteligente", expanded=True):
         if filtered_summary.empty:
