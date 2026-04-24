@@ -2,6 +2,7 @@ import pandas as pd
 
 from src.transaction_parser import (
     deduplicate_transactions,
+    detect_foreign_statement,
     parse_transaction_tables,
     parse_transactions_from_text,
 )
@@ -124,6 +125,19 @@ def test_parse_foreign_deposits_and_continued_sections():
     assert result.iloc[0]["data"].strftime("%Y-%m-%d") == "2026-01-30"
     assert "ID:1179097700 PPD" in result.iloc[0]["descricao"]
     assert not result["descricao"].str.contains("Marketing line", regex=False).any()
+
+
+def test_detect_foreign_statement_does_not_identify_currency():
+    text_pages = [
+        (
+            "Bank of America\n"
+            "Deposits and other additions\n"
+            "Date Description Amount\n"
+            "01/30/26 PAYROLL 553.63\n"
+        )
+    ]
+
+    assert detect_foreign_statement(text_pages) is True
 
 
 def test_parse_bradesco_word_layout_uses_physical_credit_debit_columns():

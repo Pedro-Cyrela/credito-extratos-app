@@ -388,6 +388,10 @@ def _looks_like_foreign_deposit_statement(text_pages: list[str]) -> bool:
     return "deposits and other additions" in folded and "date description amount" in folded
 
 
+def detect_foreign_statement(text_pages: list[str]) -> bool:
+    return _looks_like_foreign_deposit_statement(text_pages)
+
+
 def _is_foreign_deposit_heading(line: str) -> bool:
     return fold_text(line) in FOREIGN_DEPOSIT_HEADINGS
 

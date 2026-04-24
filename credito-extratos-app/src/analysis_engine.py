@@ -7,7 +7,12 @@ from .header_parser import HeaderInfo, parse_header
 from .monthly_summary import build_monthly_summary, calculate_global_metrics
 from .pdf_reader import read_pdf
 from .table_extractor import tables_to_dataframes
-from .transaction_parser import deduplicate_transactions, parse_transaction_tables, parse_transactions_from_text
+from .transaction_parser import (
+    deduplicate_transactions,
+    detect_foreign_statement,
+    parse_transaction_tables,
+    parse_transactions_from_text,
+)
 from .utils import split_user_terms
 
 
@@ -21,6 +26,7 @@ def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_r
     for file in uploaded_files:
         pdf_doc = read_pdf(file)
         header = parse_header(pdf_doc.text_pages)
+        foreign_detected = detect_foreign_statement(pdf_doc.text_pages)
         headers.append(
             {
                 "arquivo": pdf_doc.filename,
@@ -29,6 +35,7 @@ def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_r
                 "conta": header.account_number,
                 "agencia": header.agency,
                 "periodo": header.statement_period,
+                "extrato_estrangeiro_detectado": foreign_detected,
             }
         )
 
@@ -63,4 +70,9 @@ def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_r
         "metrics": metrics,
         "custom_terms": custom_terms,
         "custom_names": custom_names,
+        "foreign_detected": bool(
+            not header_df.empty
+            and "extrato_estrangeiro_detectado" in header_df.columns
+            and header_df["extrato_estrangeiro_detectado"].fillna(False).astype(bool).any()
+        ),
     }

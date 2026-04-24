@@ -17,6 +17,22 @@ st.set_page_config(
 
 
 MANUAL_OVERRIDE_REASON = "Ajuste manual do analista na interface."
+FOREIGN_CURRENCY_OPTIONS = [
+    "USD - Dolar americano",
+    "EUR - Euro",
+    "GBP - Libra esterlina",
+    "CAD - Dolar canadense",
+    "AUD - Dolar australiano",
+    "CHF - Franco suico",
+    "JPY - Iene japones",
+    "ARS - Peso argentino",
+    "CLP - Peso chileno",
+    "COP - Peso colombiano",
+    "MXN - Peso mexicano",
+    "UYU - Peso uruguaio",
+    "PYG - Guarani paraguaio",
+    "CNY - Yuan chines",
+]
 
 
 
@@ -25,11 +41,69 @@ def brl(value: float) -> str:
 
 
 
-def render_metrics(metrics: dict):
+def currency_code(currency_option: str | None) -> str:
+    if not currency_option:
+        return "BRL"
+    return currency_option.split(" - ", maxsplit=1)[0]
+
+
+
+def money(value: float, currency: str = "BRL") -> str:
+    if currency == "BRL":
+        return brl(value)
+    formatted = f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{currency} {formatted}"
+
+
+
+def has_foreign_detection(headers_df: pd.DataFrame, result: dict | None = None) -> bool:
+    if result and result.get("foreign_detected") is not None:
+        return bool(result["foreign_detected"])
+
+    if headers_df.empty or "extrato_estrangeiro_detectado" not in headers_df.columns:
+        return False
+    return bool(headers_df["extrato_estrangeiro_detectado"].fillna(False).astype(bool).any())
+
+
+
+def render_foreign_gate(headers_df: pd.DataFrame, result: dict) -> tuple[bool, str | None]:
+    detected = has_foreign_detection(headers_df, result)
+
+    with st.container(border=True):
+        st.subheader("Extrato estrangeiro")
+        if detected:
+            st.info("O app encontrou indicios de extrato estrangeiro e marcou esta opcao como Sim. Confirme antes de seguir.")
+
+        foreign_choice = st.radio(
+            "Extrato estrangeiro?",
+            options=["Nao", "Sim"],
+            horizontal=True,
+            key="foreign_statement_choice",
+        )
+
+        selected_currency = None
+        if foreign_choice == "Sim":
+            selected_currency = st.selectbox(
+                "Moeda do extrato",
+                options=FOREIGN_CURRENCY_OPTIONS,
+                index=None,
+                placeholder="Digite para pesquisar e selecione uma moeda",
+                key="foreign_currency",
+                help="A moeda nao e identificada automaticamente. Selecione uma unica moeda para liberar as analises.",
+            )
+
+            if not selected_currency:
+                st.warning("Escolha a moeda estrangeira para liberar o painel de medias, resumo e tabelas.")
+
+    return foreign_choice == "Sim", selected_currency
+
+
+
+def render_metrics(metrics: dict, display_currency: str = "BRL"):
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Renda média mensal", brl(metrics["renda_media_mensal"]))
+    col1.metric("Renda média mensal", money(metrics["renda_media_mensal"], display_currency))
     col2.metric("Meses analisados", metrics["meses_analisados"])
-    col3.metric("Total considerado", brl(metrics["total_considerado"]))
+    col3.metric("Total considerado", money(metrics["total_considerado"], display_currency))
     col4.metric("Qtd. créditos considerados", metrics["qtd_creditos"])
 
 
@@ -47,6 +121,9 @@ def render_header_cards(headers_df: pd.DataFrame):
             c2.write(f"**Titular:** {row.get('titular', '') or 'Não identificado'}")
             c3.write(f"**Conta:** {row.get('conta', '') or 'Não identificado'}")
             c4.write(f"**Agência:** {row.get('agencia', '') or 'Não identificada'}")
+            if "extrato_estrangeiro_detectado" in row.index:
+                detected_label = "Sim" if bool(row.get("extrato_estrangeiro_detectado", False)) else "Nao"
+                st.caption(f"Extrato estrangeiro detectado: {detected_label}")
             periodo = row.get("periodo", "")
             if periodo:
                 st.caption(f"Período identificado: {periodo}")
@@ -108,6 +185,7 @@ def render_transfer_editor(
     target_status: str,
     editor_key: str,
     button_key: str,
+    value_format: str = "%.2f",
 ):
     if df.empty:
         st.info("Nenhuma linha nesta visão.")
@@ -123,7 +201,7 @@ def render_transfer_editor(
         disabled=[column for column in editor_df.columns if column != action_label],
         column_config={
             action_label: st.column_config.CheckboxColumn(action_label),
-            "valor": st.column_config.NumberColumn("valor", format="%.2f"),
+            "valor": st.column_config.NumberColumn("valor", format=value_format),
         },
         key=editor_key,
     )
@@ -141,6 +219,10 @@ if "analysis_result" not in st.session_state:
     st.session_state["analysis_result"] = None
 if "manual_overrides" not in st.session_state:
     st.session_state["manual_overrides"] = {}
+if "foreign_statement_choice" not in st.session_state:
+    st.session_state["foreign_statement_choice"] = "Nao"
+if "foreign_currency" not in st.session_state:
+    st.session_state["foreign_currency"] = None
 
 with st.sidebar:
     st.header("Parâmetros")
@@ -185,6 +267,9 @@ if process:
             flexible_names=flexible_names,
         )
         st.session_state["manual_overrides"] = {}
+        detected_foreign = bool(st.session_state["analysis_result"].get("foreign_detected"))
+        st.session_state["foreign_statement_choice"] = "Sim" if detected_foreign else "Nao"
+        st.session_state["foreign_currency"] = None
 
 result = st.session_state.get("analysis_result")
 
@@ -193,10 +278,24 @@ if result:
     base_transactions = ensure_row_ids(result["transactions"])
     transactions_df = apply_manual_overrides(base_transactions, st.session_state.get("manual_overrides", {}))
 
-    recalculated_summary = build_monthly_summary(transactions_df)
-
     st.subheader("Cabeçalho dos extratos")
     render_header_cards(headers_df)
+
+    is_foreign_statement, selected_currency = render_foreign_gate(headers_df, result)
+    display_currency = currency_code(selected_currency) if is_foreign_statement else "BRL"
+
+    if is_foreign_statement and not selected_currency:
+        st.stop()
+
+    headers_for_export = headers_df.copy()
+    headers_for_export["extrato_estrangeiro_confirmado"] = "Sim" if is_foreign_statement else "Nao"
+    if is_foreign_statement:
+        headers_for_export["moeda_selecionada"] = selected_currency
+        transactions_df = transactions_df.copy()
+        transactions_df["moeda_extrato"] = display_currency
+        st.caption(f"Valores exibidos na moeda selecionada: {selected_currency}.")
+
+    recalculated_summary = build_monthly_summary(transactions_df)
 
     if not recalculated_summary.empty:
         default_months = recalculated_summary["mes_ref"].tolist()
@@ -218,7 +317,7 @@ if result:
     filtered_metrics = calculate_global_metrics(filtered_summary)
 
     st.subheader("Painel executivo")
-    render_metrics(filtered_metrics)
+    render_metrics(filtered_metrics, display_currency)
 
     st.subheader("Resumo mensal")
     st.dataframe(filtered_summary, use_container_width=True, hide_index=True)
@@ -233,13 +332,14 @@ if result:
             st.markdown(
                 f"""
                 - Foram analisados **{meses} mês(es)** com movimentações consideradas dentro do filtro atual.
-                - A **média mensal considerada** está em **{brl(float(media))}**.
-                - O mês com maior volume considerado foi **{maior_mes['mes_ref']}**, com **{brl(float(maior_mes['total_considerado']))}**.
+                - A **média mensal considerada** está em **{money(float(media), display_currency)}**.
+                - O mês com maior volume considerado foi **{maior_mes['mes_ref']}**, com **{money(float(maior_mes['total_considerado']), display_currency)}**.
                 - As movimentações podem ser reclassificadas manualmente nas tabelas abaixo e exportadas no Excel.
                 """
             )
 
     considered_view, disregarded_view, review_view = build_views(filtered_transactions)
+    value_format = "%.2f" if display_currency == "BRL" else f"{display_currency} %.2f"
 
     st.subheader("Movimentações consideradas")
     render_transfer_editor(
@@ -248,6 +348,7 @@ if result:
         target_status="desconsiderado",
         editor_key="considered_editor",
         button_key="considered_button",
+        value_format=value_format,
     )
 
     st.subheader("Movimentações desconsideradas")
@@ -257,6 +358,7 @@ if result:
         target_status="considerado",
         editor_key="disregarded_editor",
         button_key="disregarded_button",
+        value_format=value_format,
     )
 
     st.subheader("Movimentações para revisão")
@@ -268,7 +370,7 @@ if result:
         considered_df=considered_view,
         disregarded_df=disregarded_view,
         review_df=review_view,
-        metadata_df=headers_df,
+        metadata_df=headers_for_export,
     )
 
     filename = f"analise_credito_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
