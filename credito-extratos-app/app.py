@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+import html
 
 import pandas as pd
 import streamlit as st
@@ -84,9 +85,15 @@ st.markdown(
         border-bottom: 1px solid var(--border);
         box-shadow: 0 1px 0 var(--border), 0 2px 8px rgba(0,0,0,.04);
         z-index: 1000;
-        display: flex; align-items: center; justify-content: space-between;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
         padding: 0 24px;
       }
+      .ce-topbar-left { justify-self: start; }
+      .ce-topbar-mid { justify-self: center; }
+      .ce-topbar-right { justify-self: end; }
+
       .ce-brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size: 15px; }
       .ce-mark {
         width: 32px; height: 32px; border-radius: 8px;
@@ -109,6 +116,35 @@ st.markdown(
         box-shadow: var(--shadow);
         padding: 14px 14px;
       }
+      .ce-card + .ce-card { margin-top: 12px; }
+
+      /* Section headers */
+      .ce-section-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin: 6px 0 12px; }
+      .ce-section-kicker { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:1.2px; color: var(--muted); }
+      .ce-section-title { font-size: 18px; font-weight: 850; letter-spacing: -0.02em; margin-top: 2px; }
+      .ce-section-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+      .ce-pill {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .ce-chipline { display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px; }
+      .ce-chip2 {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text);
+        white-space: nowrap;
+      }
+      .ce-muted { color: var(--muted); }
 
       /* KPI */
       .kpi-card { background: var(--surface); box-shadow: var(--shadow); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 14px; }
@@ -138,6 +174,18 @@ st.markdown(
         box-shadow: var(--shadow);
         padding: 8px;
       }
+      [data-testid="stDataFrame"] table, [data-testid="stDataEditor"] table { font-size: 13px; }
+      [data-testid="stDataFrame"] thead tr th, [data-testid="stDataEditor"] thead tr th {
+        background: var(--surface2) !important;
+        border-bottom: 1px solid var(--border) !important;
+        font-size: 11px !important;
+        text-transform: uppercase;
+        letter-spacing: 1.0px;
+        color: var(--muted) !important;
+      }
+      [data-testid="stDataFrame"] tbody tr:hover td, [data-testid="stDataEditor"] tbody tr:hover td {
+        background: rgba(91,82,232,.06) !important;
+      }
 
       /* Typography */
       h1, h2, h3 { letter-spacing: -0.02em; }
@@ -154,6 +202,25 @@ st.markdown(
         border-color: rgba(91,82,232,.55) !important;
         box-shadow: 0 0 0 3px rgba(91,82,232,.12) !important;
       }
+
+      /* Expander (Resumo inteligente) */
+      [data-testid="stExpander"] {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      [data-testid="stExpander"] summary {
+        padding: 10px 14px;
+        font-weight: 850;
+        letter-spacing: -0.01em;
+      }
+      [data-testid="stExpander"] summary:hover { background: rgba(91,82,232,.04); }
+      [data-testid="stExpander"] div[role="region"] { padding: 0 14px 12px; }
+
+      /* Alerts */
+      [data-testid="stAlert"] { border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); }
     </style>
     """,
     unsafe_allow_html=True,
@@ -162,15 +229,38 @@ st.markdown(
 st.markdown(
     """
     <div class="ce-topbar">
-      <div class="ce-brand">
-        <div class="ce-mark">CE</div>
-        <div>Análise de Crédito — Extratos Bancários</div>
+      <div class="ce-topbar-left"></div>
+      <div class="ce-topbar-mid">
+        <div class="ce-brand">
+          <div class="ce-mark">CE</div>
+          <div>Análise de Crédito - Extratos Bancários</div>
+        </div>
       </div>
-      <div class="ce-chip"><span class="ce-dot"></span> Pronto</div>
+      <div class="ce-topbar-right">
+        <div class="ce-chip"><span class="ce-dot"></span> Pronto</div>
+      </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+
+def render_section_header(title: str, subtitle: str | None = None, right_pill: str | None = None):
+    subtitle_html = f"<div class='ce-section-sub'>{html.escape(subtitle)}</div>" if subtitle else ""
+    right_html = f"<div class='ce-pill'>{html.escape(right_pill)}</div>" if right_pill else ""
+    st.markdown(
+        f"""
+        <div class="ce-section-head">
+          <div>
+            <div class="ce-section-kicker">Seção</div>
+            <div class="ce-section-title">{html.escape(title)}</div>
+            {subtitle_html}
+          </div>
+          {right_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def brl(value: float) -> str:
@@ -331,19 +421,41 @@ def render_header_cards(headers_df: pd.DataFrame):
         return
 
     for _, row in headers_df.iterrows():
-        with st.container(border=True):
-            st.markdown(f"**Arquivo:** {row.get('arquivo', '')}")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.write(f"**Banco:** {row.get('banco', '') or 'Não identificado'}")
-            c2.write(f"**Titular:** {row.get('titular', '') or 'Não identificado'}")
-            c3.write(f"**Conta:** {row.get('conta', '') or 'Não identificado'}")
-            c4.write(f"**Agência:** {row.get('agencia', '') or 'Não identificada'}")
-            if "extrato_estrangeiro_detectado" in row.index:
-                detected_label = "Sim" if bool(row.get("extrato_estrangeiro_detectado", False)) else "Nao"
-                st.caption(f"Extrato estrangeiro detectado: {detected_label}")
-            periodo = row.get("periodo", "")
-            if periodo:
-                st.caption(f"Período identificado: {periodo}")
+        arquivo = html.escape(str(row.get("arquivo", "") or ""))
+        banco = html.escape(str(row.get("banco", "") or "Não identificado"))
+        titular = html.escape(str(row.get("titular", "") or "Não identificado"))
+        conta = html.escape(str(row.get("conta", "") or "Não identificado"))
+        agencia = html.escape(str(row.get("agencia", "") or "Não identificada"))
+        periodo = html.escape(str(row.get("periodo", "") or ""))
+
+        foreign_chip = ""
+        if "extrato_estrangeiro_detectado" in row.index:
+            detected_label = "Sim" if bool(row.get("extrato_estrangeiro_detectado", False)) else "Não"
+            foreign_chip = f"<span class='ce-chip2'>Estrangeiro detectado: {html.escape(detected_label)}</span>"
+
+        periodo_chip = f"<span class='ce-chip2'>Período: {periodo}</span>" if periodo else ""
+
+        st.markdown(
+            f"""
+            <div class="ce-card">
+              <div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px;">
+                <div style="font-weight:850; letter-spacing:-0.02em;">{arquivo}</div>
+                <div class="ce-muted" style="font-size:12px; font-weight:700;">Cabeçalho</div>
+              </div>
+              <div style="margin-top:10px; display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:10px;">
+                <div><div class="ce-section-kicker">Banco</div><div style="font-weight:700;">{banco}</div></div>
+                <div><div class="ce-section-kicker">Titular</div><div style="font-weight:700;">{titular}</div></div>
+                <div><div class="ce-section-kicker">Conta</div><div style="font-weight:700;">{conta}</div></div>
+                <div><div class="ce-section-kicker">Agência</div><div style="font-weight:700;">{agencia}</div></div>
+              </div>
+              <div class="ce-chipline">
+                {foreign_chip}
+                {periodo_chip}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 
@@ -441,17 +553,19 @@ def render_transfer_editor(
         st.rerun()
 
 
-st.markdown(
-    "<div class='ce-card' style='margin-bottom: 18px;'>"
-    "<div style='font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1.1px; color:var(--muted);'>"
-    "Visão Geral"
-    "</div>"
-    "<div style='margin-top:6px; color:var(--muted); font-size:13px;'>"
-    "Leitura flexível de extratos PDF com regras de exclusão automáticas, revisão manual e exportação auditável."
-    "</div>"
-    "</div>",
-    unsafe_allow_html=True,
-)
+    st.markdown(
+        "<div class='ce-card' style='margin-bottom: 18px;'>"
+        "<div style='display:flex; align-items:flex-end; justify-content:space-between; gap:16px;'>"
+        "<div>"
+        "<div class='ce-section-kicker'>Visão geral</div>"
+        "<div style='font-size:18px; font-weight:850; letter-spacing:-0.02em; margin-top:2px;'>Análise pronta para revisão</div>"
+        "<div class='ce-section-sub'>Leitura flexível de PDFs, exclusões automáticas, revisão manual e exportação auditável.</div>"
+        "</div>"
+        "<div class='ce-pill'>Backoffice</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 if "analysis_result" not in st.session_state:
     st.session_state["analysis_result"] = None
@@ -517,7 +631,7 @@ if result:
     base_transactions = ensure_row_ids(result["transactions"])
     transactions_df = apply_manual_overrides(base_transactions, st.session_state.get("manual_overrides", {}))
 
-    st.subheader("Cabeçalho dos extratos")
+    render_section_header("Cabeçalho dos extratos", subtitle="Dados detectados no PDF (banco, titular, conta, período).")
     render_header_cards(headers_df)
 
     fx_quote: FxQuote | None = None
@@ -603,20 +717,25 @@ if result:
     filtered_metrics = calculate_global_metrics(filtered_summary)
     filtered_metrics_brl = calculate_brl_metrics_from_summary(filtered_summary) if fx_quote else None
 
-    st.subheader("Painel executivo")
+    render_section_header("Painel executivo", subtitle="Métricas globais considerando o filtro atual.")
     if fx_quote and display_currency != "BRL":
-        with st.container(border=True):
-            st.markdown(
-                "**Cotação PTAX venda ({})** — 1 {} = {}".format(
+        st.markdown(
+            "<div class='ce-card'><div style='font-weight:850;'>"
+            + html.escape(
+                "Cotação PTAX venda ({}) - 1 {} = {}".format(
                     fx_quote.requested_date.strftime("%d/%m/%Y"),
                     display_currency,
                     brl(float(fx_quote.rate_brl_per_unit)),
                 )
             )
+            + "</div><div class='ce-section-sub'>Aplicada no BRL exibido ao lado quando disponível.</div></div>",
+            unsafe_allow_html=True,
+        )
 
     render_metrics(filtered_metrics, display_currency, fx_quote=fx_quote)
 
-    st.subheader("Resumo mensal")
+    months_count = len(filtered_summary) if isinstance(filtered_summary, pd.DataFrame) else 0
+    render_section_header("Resumo mensal", subtitle="Totais por mês de referência.", right_pill=f"{months_count} mês(es)")
     summary_value_format = "%.2f" if display_currency == "BRL" else f"{display_currency} %.2f"
     summary_column_config: dict[str, st.column_config.BaseColumn] = {
         "total_considerado": st.column_config.NumberColumn("total_considerado", format=summary_value_format),
@@ -642,22 +761,31 @@ if result:
         if filtered_summary.empty:
             st.info("Não foi possível construir um resumo mensal com os dados extraídos.")
         else:
-              meses = len(filtered_summary)
-              media = filtered_summary["total_considerado"].mean() if meses else 0
-              maior_mes = filtered_summary.sort_values("total_considerado", ascending=False).iloc[0]
-              st.markdown(
-                  f"""
-                  - Foram analisados **{meses} mês(es)** com movimentações consideradas dentro do filtro atual.
-                  - A **média mensal considerada** está em **{format_dual_amount_md(float(media), display_currency, fx_quote)}**.
-                  - O mês com maior volume considerado foi **{maior_mes['mes_ref']}**, com **{format_dual_amount_md(float(maior_mes['total_considerado']), display_currency, fx_quote)}**.
-                  - As movimentações podem ser reclassificadas manualmente nas tabelas abaixo e exportadas no Excel.
-                  """
-              )
+            meses = len(filtered_summary)
+            media = filtered_summary["total_considerado"].mean() if meses else 0
+            maior_mes = filtered_summary.sort_values("total_considerado", ascending=False).iloc[0]
+            st.markdown(
+                f"""
+                - Foram analisados **{meses} mês(es)** com movimentações consideradas dentro do filtro atual.
+                - A **média mensal considerada** está em **{format_dual_amount_md(float(media), display_currency, fx_quote)}**.
+                - O mês com maior volume considerado foi **{maior_mes['mes_ref']}**, com **{format_dual_amount_md(float(maior_mes['total_considerado']), display_currency, fx_quote)}**.
+                - As movimentações podem ser reclassificadas manualmente nas tabelas abaixo e exportadas no Excel.
+                """
+            )
 
     considered_view, disregarded_view, review_view = build_views(filtered_transactions)
     value_format = "%.2f" if display_currency == "BRL" else f"{display_currency} %.2f"
 
-    st.subheader("Movimentações consideradas")
+    considered_total = (
+        float(pd.to_numeric(considered_view.get("valor"), errors="coerce").fillna(0).sum())
+        if isinstance(considered_view, pd.DataFrame) and "valor" in considered_view.columns
+        else 0.0
+    )
+    render_section_header(
+        "Movimentações consideradas",
+        subtitle="Créditos que entram no cálculo (você pode mover para desconsideradas).",
+        right_pill=f"{len(considered_view)} registro(s) · {money(considered_total, display_currency)}",
+    )
     render_transfer_editor(
         df=considered_view,
         action_label="Mover para desconsideradas",
@@ -684,7 +812,16 @@ if result:
         ],
     )
 
-    st.subheader("Movimentações desconsideradas")
+    disregarded_total = (
+        float(pd.to_numeric(disregarded_view.get("valor"), errors="coerce").fillna(0).sum())
+        if isinstance(disregarded_view, pd.DataFrame) and "valor" in disregarded_view.columns
+        else 0.0
+    )
+    render_section_header(
+        "Movimentações desconsideradas",
+        subtitle="Débitos e exclusões automáticas/manuais (você pode mover para consideradas).",
+        right_pill=f"{len(disregarded_view)} registro(s) · {money(disregarded_total, display_currency)}",
+    )
     render_transfer_editor(
         df=disregarded_view,
         action_label="Mover para consideradas",
@@ -711,7 +848,7 @@ if result:
         ],
     )
 
-    st.subheader("Movimentações para revisão")
+    render_section_header("Movimentações para revisão", subtitle="Linhas ambíguas que merecem validação manual.")
     review_df = review_view.copy()
     if "data" in review_df.columns:
         review_df = review_df.sort_values(["data", "descricao"], na_position="last")
