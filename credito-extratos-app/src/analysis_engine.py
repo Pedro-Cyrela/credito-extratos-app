@@ -8,12 +8,23 @@ from .monthly_summary import build_monthly_summary, calculate_global_metrics
 from .pdf_reader import read_pdf
 from .table_extractor import tables_to_dataframes
 from .transaction_parser import (
+    TRANSACTION_COLUMNS,
     deduplicate_transactions,
     detect_foreign_statement,
     parse_transaction_tables,
     parse_transactions_from_text,
 )
 from .utils import normalize_text, split_user_terms
+
+
+def _ensure_transaction_schema(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=TRANSACTION_COLUMNS)
+    result = df.copy()
+    for col in TRANSACTION_COLUMNS:
+        if col not in result.columns:
+            result[col] = pd.NA
+    return result
 
 
 def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_raw: str, flexible_names: bool = True) -> dict:
@@ -43,8 +54,10 @@ def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_r
         )
 
         table_dfs = tables_to_dataframes(pdf_doc.tables)
-        parsed_from_tables = parse_transaction_tables(table_dfs, pdf_doc.filename)
-        parsed_from_text = parse_transactions_from_text(pdf_doc.text_pages, pdf_doc.filename, pdf_doc.word_pages)
+        parsed_from_tables = _ensure_transaction_schema(parse_transaction_tables(table_dfs, pdf_doc.filename))
+        parsed_from_text = _ensure_transaction_schema(
+            parse_transactions_from_text(pdf_doc.text_pages, pdf_doc.filename, pdf_doc.word_pages)
+        )
         parsed_frames = [df for df in [parsed_from_tables, parsed_from_text] if not df.empty]
         combined = pd.concat(parsed_frames, ignore_index=True) if parsed_frames else pd.DataFrame()
         combined = deduplicate_transactions(combined)
@@ -60,8 +73,10 @@ def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_r
                 existing.add(cleaned)
 
     transactions_df = pd.concat(transaction_frames, ignore_index=True) if transaction_frames else pd.DataFrame()
+    transactions_df = _ensure_transaction_schema(transactions_df)
     transactions_df = deduplicate_transactions(transactions_df)
     final_df = apply_exclusion_rules(transactions_df, custom_terms, custom_names, flexible_names=flexible_names)
+    final_df = _ensure_transaction_schema(final_df)
 
     summary_df = build_monthly_summary(final_df)
     metrics = calculate_global_metrics(summary_df)

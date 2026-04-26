@@ -90,6 +90,11 @@ FOREIGN_DEPOSIT_HEADINGS = {
     "deposits and other additions - continued",
 }
 
+EAGLE_DAY_PATTERN = re.compile(
+    r"^(?P<day>\d{1,2})\s+(?P<month>[A-ZÇ]{3})\s+(?P<year>\d{4})\b",
+    flags=re.IGNORECASE,
+)
+
 
 BB_MAIN_ROW_PATTERN = re.compile(
     r"^(?P<date>\d{2}/\d{2}/\d{4})\s+"
@@ -216,6 +221,133 @@ def _parse_bb_transactions(text_pages: list[str], source_file: str) -> pd.DataFr
             # Append detail lines (e.g. "01/10 14:21 ...", or beneficiary lines)
             if BB_DETAIL_ROW_PATTERN.match(line) or any(ch.isalpha() for ch in line):
                 rows[last_index]["descricao"] = normalize_text(f"{rows[last_index]['descricao']} {line}")
+
+    if not rows:
+        return _empty_transactions_df()
+
+    result = pd.DataFrame(rows)
+    result["data"] = pd.to_datetime(result["data"], errors="coerce")
+    return result.sort_values(["data", "descricao"]).reset_index(drop=True)
+
+
+def _looks_like_eagle_broker_statement(text_pages: list[str]) -> bool:
+    sample = "\n".join(text_pages[:2])
+    folded = fold_text(sample)
+    return "movimentacoes" in folded and "saldo ao final do dia" in folded and "extrato" in folded
+
+
+def _parse_eagle_broker_transactions(text_pages: list[str], source_file: str) -> pd.DataFrame:
+    if not _looks_like_eagle_broker_statement(text_pages):
+        return _empty_transactions_df()
+
+    lines: list[str] = []
+    for page_text in text_pages:
+        lines.extend([normalize_text(l) for l in (page_text or "").splitlines() if normalize_text(l)])
+
+    current_date: pd.Timestamp | None = None
+    rows: list[dict] = []
+    last_index: int | None = None
+
+    def is_noise(folded: str) -> bool:
+        return folded.startswith(
+            (
+                "extrato ",
+                "nome ",
+                "cnpj ",
+                "saldo inicial",
+                "total de entradas",
+                "total de saidas",
+                "saldo final",
+                "saldo final disponivel",
+                "movimentacoes",
+                "o extrato e baseado",
+                "extrato gerado em",
+                "reclamacoes",
+                "cancelamentos",
+                "localidades",
+                "capitais",
+            )
+        )
+
+    for line in lines:
+        folded = fold_text(line)
+        if not folded or is_noise(folded):
+            continue
+
+        if folded.startswith("saldo ao final do dia"):
+            last_index = None
+            continue
+
+        day_match = EAGLE_DAY_PATTERN.match(line)
+        if day_match:
+            # Example: "21 JUL 2025 PIX recebido 5.000,00"
+            month_key = normalize_text(day_match.group("month")).upper()
+            month = PT_MONTHS.get(month_key)
+            if month:
+                current_date = pd.Timestamp(
+                    year=int(day_match.group("year")),
+                    month=month,
+                    day=int(day_match.group("day")),
+                ).normalize()
+            else:
+                current_date = parse_date(day_match.group(0))
+            remainder = normalize_text(line[day_match.end() :])
+            last_index = None
+            if not remainder:
+                continue
+
+            amount_matches = extract_amount_matches(remainder)
+            if amount_matches:
+                amount_match = amount_matches[-1]
+                desc = normalize_text(remainder[: amount_match.start])
+                amount = float(amount_match.value)
+                if "enviado" in folded and amount > 0:
+                    amount = -abs(amount)
+                if "recebido" in folded and amount < 0:
+                    amount = abs(amount)
+
+                rows.append(
+                    _build_record(
+                        dt=current_date,
+                        desc=desc,
+                        amount=amount,
+                        raw_amount_text=amount_match.text,
+                        detected_as_credit=amount > 0,
+                        detected_as_debit=amount < 0,
+                        source_file=source_file,
+                    )
+                )
+                last_index = len(rows) - 1
+            continue
+
+        # Lines without date, use current_date (under a day header)
+        if current_date is not None:
+            amount_matches = extract_amount_matches(line)
+            if amount_matches and ("pix" in folded or "recebido" in folded or "enviado" in folded):
+                amount_match = amount_matches[-1]
+                desc = normalize_text(line[: amount_match.start])
+                amount = float(amount_match.value)
+                if "enviado" in folded and amount > 0:
+                    amount = -abs(amount)
+                if "recebido" in folded and amount < 0:
+                    amount = abs(amount)
+                rows.append(
+                    _build_record(
+                        dt=current_date,
+                        desc=desc,
+                        amount=amount,
+                        raw_amount_text=amount_match.text,
+                        detected_as_credit=amount > 0,
+                        detected_as_debit=amount < 0,
+                        source_file=source_file,
+                    )
+                )
+                last_index = len(rows) - 1
+                continue
+
+        # Details for previous record (beneficiary, reference, time)
+        if last_index is not None and any(ch.isalpha() for ch in line):
+            rows[last_index]["descricao"] = normalize_text(f"{rows[last_index]['descricao']} {line}")
 
     if not rows:
         return _empty_transactions_df()
@@ -1121,6 +1253,10 @@ def parse_transactions_from_text(
     bb_df = _parse_bb_transactions(text_pages, source_file)
     if not bb_df.empty:
         return bb_df
+
+    eagle_df = _parse_eagle_broker_transactions(text_pages, source_file)
+    if not eagle_df.empty:
+        return eagle_df
 
     foreign_deposits_df = _parse_foreign_deposit_transactions(text_pages, source_file)
     if not foreign_deposits_df.empty:

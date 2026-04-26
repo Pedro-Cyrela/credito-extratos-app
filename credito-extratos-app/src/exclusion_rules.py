@@ -41,6 +41,13 @@ def _term_matches(description: str, term: str) -> bool:
     if not term:
         return False
 
+    if term.startswith("word:"):
+        token = term.split(":", maxsplit=1)[1]
+        if not token:
+            return False
+        escaped = re.escape(token)
+        return bool(re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", description))
+
     escaped = re.escape(term)
     if " " in term:
         return term in description
@@ -77,13 +84,18 @@ def apply_exclusion_rules(
         initial_status = row.get("status_inicial", "revisar")
         initial_reason = row.get("motivo_inicial", "")
         matched_term = _find_matched_term(desc, exclusion_terms)
+        display_term = (
+            matched_term.split(":", maxsplit=1)[1]
+            if matched_term and matched_term.startswith("word:")
+            else matched_term
+        )
 
         if row.get("tipo_inferido") == "debito":
             status = "desconsiderado"
             reason = "Movimentacao interpretada como debito."
         elif matched_term:
             status = "desconsiderado"
-            reason = f"Regra de exclusao acionada por termo: {matched_term}."
+            reason = f"Regra de exclusao acionada por termo: {display_term}."
         elif initial_status == "considerado" and row.get("valor", 0) > 0:
             status = "considerado"
             reason = initial_reason or "Credito aceito pela regra inicial."
@@ -93,7 +105,7 @@ def apply_exclusion_rules(
 
         final_status.append(status)
         final_reason.append(reason)
-        matched_term_col.append(matched_term or "")
+        matched_term_col.append(display_term or "")
 
     result["status_final"] = final_status
     result["motivo_final"] = final_reason
