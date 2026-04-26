@@ -552,21 +552,6 @@ def render_transfer_editor(
         apply_status_change(selected_ids, target_status)
         st.rerun()
 
-
-    st.markdown(
-        "<div class='ce-card' style='margin-bottom: 18px;'>"
-        "<div style='display:flex; align-items:flex-end; justify-content:space-between; gap:16px;'>"
-        "<div>"
-        "<div class='ce-section-kicker'>Visão geral</div>"
-        "<div style='font-size:18px; font-weight:850; letter-spacing:-0.02em; margin-top:2px;'>Análise pronta para revisão</div>"
-        "<div class='ce-section-sub'>Leitura flexível de PDFs, exclusões automáticas, revisão manual e exportação auditável.</div>"
-        "</div>"
-        "<div class='ce-pill'>Backoffice</div>"
-        "</div>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
 if "analysis_result" not in st.session_state:
     st.session_state["analysis_result"] = None
 if "manual_overrides" not in st.session_state:
@@ -883,6 +868,7 @@ if result:
                 st.session_state["pdf_bytes"] = build_pdf_report(
                     headers_df=headers_for_export,
                     metrics=filtered_metrics,
+                    summary_df=filtered_summary,
                     considered_df=considered_view,
                     display_currency=display_currency,
                     fx_quote=fx_quote,

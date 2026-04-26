@@ -60,6 +60,7 @@ def build_pdf_report(
     *,
     headers_df: pd.DataFrame,
     metrics: dict,
+    summary_df: pd.DataFrame | None = None,
     considered_df: pd.DataFrame,
     display_currency: str,
     fx_quote: FxQuote | None,
@@ -105,6 +106,21 @@ def build_pdf_report(
         holders = [h for h in headers_df["titular"].fillna("").astype(str).tolist() if h.strip()]
     holders = sorted(set(holders))
 
+    months: list[str] = []
+    if summary_df is not None and not summary_df.empty and "mes_ref" in summary_df.columns:
+        months = [str(m).strip() for m in summary_df["mes_ref"].tolist() if str(m).strip()]
+    elif "mes_ref" in considered_df.columns:
+        months = [str(m).strip() for m in considered_df["mes_ref"].tolist() if str(m).strip()]
+    else:
+        if "data" in considered_df.columns:
+            dt_series = pd.to_datetime(considered_df["data"], errors="coerce")
+            months = [d.strftime("%m/%Y") for d in dt_series.dropna().dt.to_pydatetime()]
+
+    months_unique: list[str] = []
+    for m in months:
+        if m not in months_unique:
+            months_unique.append(m)
+
     pdf.set_font("Helvetica", "B", 11)
     pdf.cell(0, 7, _pdf_text("Resumo"), new_x="LMARGIN", new_y="NEXT")
     pdf.set_draw_color(220, 220, 220)
@@ -141,9 +157,15 @@ def build_pdf_report(
     qtd = int(metrics.get("qtd_creditos") or 0)
 
     pdf.set_font("Helvetica", "", 10)
-    pdf.multi_cell(full_w, 6, _pdf_text(f"Renda média mensal: {_dual_value_text(renda, display_currency, fx_quote)}"))
-    pdf.multi_cell(full_w, 6, _pdf_text(f"Meses analisados: {meses}"))
-    pdf.multi_cell(full_w, 6, _pdf_text(f"Total considerado: {_dual_value_text(total, display_currency, fx_quote)}"))
+    months_line = ", ".join(months_unique) if months_unique else ""
+    months_count = len(months_unique) if months_unique else meses
+    if months_line:
+        pdf.multi_cell(full_w, 6, _pdf_text(f"Meses ({months_count}): {months_line}"))
+    else:
+        pdf.multi_cell(full_w, 6, _pdf_text(f"Meses: {months_count}"))
+
+    pdf.multi_cell(full_w, 6, _pdf_text(f"Renda total apurada: {_dual_value_text(total, display_currency, fx_quote)}"))
+    pdf.multi_cell(full_w, 6, _pdf_text(f"Renda média mensal apurada: {_dual_value_text(renda, display_currency, fx_quote)}"))
     pdf.multi_cell(full_w, 6, _pdf_text(f"Qtd. créditos considerados: {qtd}"))
 
     pdf.ln(4)
