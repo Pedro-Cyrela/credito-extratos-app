@@ -145,21 +145,27 @@ def build_pdf_report(
         lines = value_lines if isinstance(value_lines, list) else [value_lines]
         lines = [line for line in lines if line is not None]
 
-        label_w = 44
         gap = 4
+        pdf.set_font("Helvetica", "B", 10)
+        measured_label_w = pdf.get_string_width(_pdf_text(label)) + 2
+        label_w = min(62, max(28, measured_label_w))
         value_w = full_w - label_w - gap
-        if value_w < 60:
-            label_w = 34
-            value_w = full_w - label_w - gap
-        if value_w < 40:
+        if value_w < 70:
             label_w = 0
             value_w = full_w
 
         for idx, line in enumerate(lines):
-            pdf.set_font("Helvetica", "B" if idx == 0 else "", 10)
-            if label_w:
-                pdf.cell(label_w, 6, _pdf_text(label) if idx == 0 else "", border=0)
-                pdf.cell(gap, 6, "" if idx == 0 else "", border=0)
+            if label_w == 0:
+                if idx == 0:
+                    pdf.set_font("Helvetica", "B", 10)
+                    pdf.multi_cell(full_w, 6, _pdf_text(label), border=0)
+                pdf.set_font("Helvetica", "", 10)
+                pdf.multi_cell(full_w, 6, _pdf_text(line), border=0)
+                continue
+
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(label_w, 6, _pdf_text(label) if idx == 0 else "", border=0)
+            pdf.cell(gap, 6, "", border=0)
             pdf.set_font("Helvetica", "", 10)
             pdf.multi_cell(value_w, 6, _pdf_text(line), border=0)
 
@@ -198,7 +204,9 @@ def build_pdf_report(
     months_line = ", ".join(months_unique) if months_unique else ""
     months_count = len(months_unique) if months_unique else meses
     if months_unique:
-        month_lines = wrap_items(months_unique, max_width=full_w - 44 - 4)
+        pdf.set_font("Helvetica", "B", 10)
+        month_label_w = min(62, max(28, pdf.get_string_width(_pdf_text("Meses")) + 2))
+        month_lines = wrap_items(months_unique, max_width=full_w - month_label_w - 4)
         write_kv("Meses", [f"({months_count}) {month_lines[0]}", *month_lines[1:]] if month_lines else f"({months_count})")
     else:
         write_kv("Meses", f"{months_count}")
