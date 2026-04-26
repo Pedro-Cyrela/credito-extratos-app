@@ -31,10 +31,24 @@ FOREIGN_CURRENCY_OPTIONS = [
     "COP - Peso colombiano",
     "MXN - Peso mexicano",
     "UYU - Peso uruguaio",
-    "PYG - Guarani paraguaio",
-    "CNY - Yuan chines",
-]
+  "PYG - Guarani paraguaio",
+  "CNY - Yuan chines",
+  ]
 
+
+
+st.markdown(
+    """
+    <style>
+      .kpi-card { padding: 0.75rem 0.9rem; border: 1px solid rgba(49, 51, 63, 0.2); border-radius: 0.75rem; }
+      .kpi-label { font-size: 0.85rem; opacity: 0.85; margin-bottom: 0.25rem; }
+      .kpi-values { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
+      .kpi-value { font-size: 1.45rem; font-weight: 650; line-height: 1.2; }
+      .kpi-sep { opacity: 0.6; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 def brl(value: float) -> str:
@@ -71,6 +85,22 @@ def format_dual_amount(value: float, currency: str, fx_quote: FxQuote | None) ->
         return money(value, currency)
     brl_value = float(value) * float(fx_quote.rate_brl_per_unit)
     return f"{money(value, currency)} - {brl(brl_value)}"
+
+
+def dual_amount_parts(
+    value: float, currency: str, fx_quote: FxQuote | None
+) -> tuple[str, str | None]:
+    if not fx_quote or currency == "BRL":
+        return money(value, currency), None
+    brl_value = float(value) * float(fx_quote.rate_brl_per_unit)
+    return money(value, currency), brl(brl_value)
+
+
+def format_dual_amount_md(value: float, currency: str, fx_quote: FxQuote | None) -> str:
+    primary, secondary = dual_amount_parts(value, currency, fx_quote)
+    if not secondary:
+        return primary
+    return f"{primary} ({secondary})"
 
 
 def calculate_brl_metrics_from_summary(summary_df: pd.DataFrame) -> dict[str, float]:
@@ -139,12 +169,37 @@ def render_foreign_gate(headers_df: pd.DataFrame, result: dict) -> tuple[bool, s
 
 
 
-def render_metrics(metrics: dict, display_currency: str = "BRL"):
+def render_kpi_card(label: str, primary: str, secondary: str | None = None):
+    values_html = f"<span class='kpi-value'>{primary}</span>"
+    if secondary:
+        values_html = (
+            f"<span class='kpi-value'>{primary}</span>"
+            f"<span class='kpi-value kpi-sep'>|</span>"
+            f"<span class='kpi-value'>{secondary}</span>"
+        )
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+          <div class="kpi-label">{label}</div>
+          <div class="kpi-values">{values_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_metrics(metrics: dict, display_currency: str = "BRL", fx_quote: FxQuote | None = None):
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Renda média mensal", money(metrics["renda_media_mensal"], display_currency))
-    col2.metric("Meses analisados", metrics["meses_analisados"])
-    col3.metric("Total considerado", money(metrics["total_considerado"], display_currency))
-    col4.metric("Qtd. créditos considerados", metrics["qtd_creditos"])
+    with col1:
+        primary, secondary = dual_amount_parts(float(metrics["renda_media_mensal"]), display_currency, fx_quote)
+        render_kpi_card("Renda média mensal", primary, secondary)
+    with col2:
+        render_kpi_card("Meses analisados", str(metrics["meses_analisados"]))
+    with col3:
+        primary, secondary = dual_amount_parts(float(metrics["total_considerado"]), display_currency, fx_quote)
+        render_kpi_card("Total considerado", primary, secondary)
+    with col4:
+        render_kpi_card("Qtd. créditos considerados", str(metrics["qtd_creditos"]))
 
 
 
@@ -409,14 +464,17 @@ if result:
     filtered_metrics_brl = calculate_brl_metrics_from_summary(filtered_summary) if fx_quote else None
 
     st.subheader("Painel executivo")
-    render_metrics(filtered_metrics, display_currency)
-    if filtered_metrics_brl and display_currency != "BRL":
-        st.caption(
-            "Renda media mensal: {} | Total considerado: {}".format(
-                format_dual_amount(float(filtered_metrics["renda_media_mensal"]), display_currency, fx_quote),
-                format_dual_amount(float(filtered_metrics["total_considerado"]), display_currency, fx_quote),
+    if fx_quote and display_currency != "BRL":
+        with st.container(border=True):
+            st.markdown(
+                "**Cotação PTAX venda ({})** — 1 {} = {}".format(
+                    fx_quote.requested_date.strftime("%d/%m/%Y"),
+                    display_currency,
+                    brl(float(fx_quote.rate_brl_per_unit)),
+                )
             )
-        )
+
+    render_metrics(filtered_metrics, display_currency, fx_quote=fx_quote)
 
     st.subheader("Resumo mensal")
     summary_value_format = "%.2f" if display_currency == "BRL" else f"{display_currency} %.2f"
@@ -444,17 +502,17 @@ if result:
         if filtered_summary.empty:
             st.info("Não foi possível construir um resumo mensal com os dados extraídos.")
         else:
-            meses = len(filtered_summary)
-            media = filtered_summary["total_considerado"].mean() if meses else 0
-            maior_mes = filtered_summary.sort_values("total_considerado", ascending=False).iloc[0]
-            st.markdown(
-                f"""
-                - Foram analisados **{meses} mês(es)** com movimentações consideradas dentro do filtro atual.
-                - A **média mensal considerada** está em **{money(float(media), display_currency)}**.
-                - O mês com maior volume considerado foi **{maior_mes['mes_ref']}**, com **{money(float(maior_mes['total_considerado']), display_currency)}**.
-                - As movimentações podem ser reclassificadas manualmente nas tabelas abaixo e exportadas no Excel.
-                """
-            )
+              meses = len(filtered_summary)
+              media = filtered_summary["total_considerado"].mean() if meses else 0
+              maior_mes = filtered_summary.sort_values("total_considerado", ascending=False).iloc[0]
+              st.markdown(
+                  f"""
+                  - Foram analisados **{meses} mês(es)** com movimentações consideradas dentro do filtro atual.
+                  - A **média mensal considerada** está em **{format_dual_amount_md(float(media), display_currency, fx_quote)}**.
+                  - O mês com maior volume considerado foi **{maior_mes['mes_ref']}**, com **{format_dual_amount_md(float(maior_mes['total_considerado']), display_currency, fx_quote)}**.
+                  - As movimentações podem ser reclassificadas manualmente nas tabelas abaixo e exportadas no Excel.
+                  """
+              )
 
     considered_view, disregarded_view, review_view = build_views(filtered_transactions)
     value_format = "%.2f" if display_currency == "BRL" else f"{display_currency} %.2f"
