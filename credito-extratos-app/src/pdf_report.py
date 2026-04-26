@@ -100,6 +100,8 @@ def build_pdf_report(
     pdf.set_auto_page_break(auto=True, margin=14)
     pdf.add_page()
     full_w = getattr(pdf, "epw", pdf.w - pdf.l_margin - pdf.r_margin)
+    if not full_w or full_w <= 0:
+        full_w = pdf.w - pdf.l_margin - pdf.r_margin
 
     holders = []
     if not headers_df.empty and "titular" in headers_df.columns:
@@ -121,6 +123,47 @@ def build_pdf_report(
         if m not in months_unique:
             months_unique.append(m)
 
+    def wrap_items(items: list[str], max_width: float) -> list[str]:
+        if not items:
+            return []
+        lines: list[str] = []
+        current = ""
+        for item in items:
+            candidate = item if not current else f"{current}, {item}"
+            if pdf.get_string_width(_pdf_text(candidate)) <= max_width:
+                current = candidate
+                continue
+            if current:
+                lines.append(current)
+            current = item
+        if current:
+            lines.append(current)
+        return lines
+
+
+    def write_kv(label: str, value_lines: list[str] | str):
+        lines = value_lines if isinstance(value_lines, list) else [value_lines]
+        lines = [line for line in lines if line is not None]
+
+        label_w = 44
+        gap = 4
+        value_w = full_w - label_w - gap
+        if value_w < 60:
+            label_w = 34
+            value_w = full_w - label_w - gap
+        if value_w < 40:
+            label_w = 0
+            value_w = full_w
+
+        for idx, line in enumerate(lines):
+            pdf.set_font("Helvetica", "B" if idx == 0 else "", 10)
+            if label_w:
+                pdf.cell(label_w, 6, _pdf_text(label) if idx == 0 else "", border=0)
+                pdf.cell(gap, 6, "" if idx == 0 else "", border=0)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.multi_cell(value_w, 6, _pdf_text(line), border=0)
+
+
     pdf.set_font("Helvetica", "B", 11)
     pdf.cell(0, 7, _pdf_text("Resumo"), new_x="LMARGIN", new_y="NEXT")
     pdf.set_draw_color(220, 220, 220)
@@ -137,36 +180,32 @@ def build_pdf_report(
         pdf.ln(1)
 
     if fx_quote and display_currency != "BRL":
-        pdf.set_font("Helvetica", "", 10)
-        pdf.multi_cell(
-            full_w,
-            5,
-            _pdf_text(
-                "Cotação PTAX venda ({}): 1 {} = {}".format(
-                    fx_quote.requested_date.strftime("%d/%m/%Y"),
-                    display_currency,
+        write_kv(
+            "Cotação PTAX",
+            "Venda ({}): 1 {} = {}".format(
+                fx_quote.requested_date.strftime("%d/%m/%Y"),
+                display_currency,
                 _brl(float(fx_quote.rate_brl_per_unit)),
             ),
-            ),
         )
-    pdf.ln(1)
+        pdf.ln(1)
 
     renda = float(metrics.get("renda_media_mensal") or 0)
     meses = int(metrics.get("meses_analisados") or 0)
     total = float(metrics.get("total_considerado") or 0)
     qtd = int(metrics.get("qtd_creditos") or 0)
 
-    pdf.set_font("Helvetica", "", 10)
     months_line = ", ".join(months_unique) if months_unique else ""
     months_count = len(months_unique) if months_unique else meses
-    if months_line:
-        pdf.multi_cell(full_w, 6, _pdf_text(f"Meses ({months_count}): {months_line}"))
+    if months_unique:
+        month_lines = wrap_items(months_unique, max_width=full_w - 44 - 4)
+        write_kv("Meses", [f"({months_count}) {month_lines[0]}", *month_lines[1:]] if month_lines else f"({months_count})")
     else:
-        pdf.multi_cell(full_w, 6, _pdf_text(f"Meses: {months_count}"))
+        write_kv("Meses", f"{months_count}")
 
-    pdf.multi_cell(full_w, 6, _pdf_text(f"Renda total apurada: {_dual_value_text(total, display_currency, fx_quote)}"))
-    pdf.multi_cell(full_w, 6, _pdf_text(f"Renda média mensal apurada: {_dual_value_text(renda, display_currency, fx_quote)}"))
-    pdf.multi_cell(full_w, 6, _pdf_text(f"Qtd. créditos considerados: {qtd}"))
+    write_kv("Renda total", _dual_value_text(total, display_currency, fx_quote))
+    write_kv("Renda média", _dual_value_text(renda, display_currency, fx_quote))
+    write_kv("Qtd. créditos", str(qtd))
 
     pdf.ln(4)
     pdf.set_font("Helvetica", "B", 11)
