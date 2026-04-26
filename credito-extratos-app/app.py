@@ -39,21 +39,135 @@ FOREIGN_CURRENCY_OPTIONS = [
     "COP - Peso colombiano",
     "MXN - Peso mexicano",
     "UYU - Peso uruguaio",
-  "PYG - Guarani paraguaio",
-  "CNY - Yuan chines",
-  ]
+    "PYG - Guarani paraguaio",
+    "CNY - Yuan chines",
+]
 
 
 
 st.markdown(
     """
     <style>
-      .kpi-card { padding: 0.75rem 0.9rem; border: 1px solid rgba(49, 51, 63, 0.2); border-radius: 0.75rem; }
-      .kpi-label { font-size: 0.85rem; opacity: 0.85; margin-bottom: 0.25rem; }
-      .kpi-values { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
-      .kpi-value { font-size: 1.45rem; font-weight: 650; line-height: 1.2; }
-      .kpi-sep { opacity: 0.6; }
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+      :root {
+        --bg:       #f5f6fa;
+        --surface:  #ffffff;
+        --surface2: #f0f1f8;
+        --border:   #dde1f0;
+        --text:     #1a1d35;
+        --muted:    #6b7299;
+        --accent:   #5b52e8;
+        --green:    #00b894;
+        --radius:   12px;
+        --shadow:   0 2px 12px rgba(91,82,232,.06);
+      }
+
+      html, body, [class*="css"] { font-family: 'Inter', sans-serif; color: var(--text); }
+      .stApp { background: var(--bg); }
+
+      /* Hide Streamlit chrome */
+      #MainMenu, footer { visibility: hidden; }
+      [data-testid="stHeader"] { background: transparent; }
+
+      /* Layout spacing (room for custom topbar) */
+      .block-container { padding-top: 5.5rem; padding-left: 1.75rem; padding-right: 1.75rem; padding-bottom: 2.5rem; max-width: 1400px; }
+
+      /* Sidebar */
+      [data-testid="stSidebar"] { background: var(--surface); border-right: 1px solid var(--border); }
+      [data-testid="stSidebar"] .block-container { padding-top: 1.25rem; }
+
+      /* Custom topbar */
+      .ce-topbar {
+        position: fixed; top: 0; left: 0; right: 0; height: 56px;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        box-shadow: 0 1px 0 var(--border), 0 2px 8px rgba(0,0,0,.04);
+        z-index: 1000;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 24px;
+      }
+      .ce-brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size: 15px; }
+      .ce-mark {
+        width: 32px; height: 32px; border-radius: 8px;
+        background: linear-gradient(135deg, var(--accent), var(--green));
+        display:flex; align-items:center; justify-content:center; color:white; font-weight:800;
+      }
+      .ce-chip {
+        background: var(--surface2); border: 1px solid var(--border);
+        border-radius: 999px; padding: 4px 12px;
+        font-size: 12px; font-weight: 600; color: var(--muted);
+        display:flex; align-items:center; gap:8px;
+      }
+      .ce-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+
+      /* Cards / containers */
+      .ce-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 14px 14px;
+      }
+
+      /* KPI */
+      .kpi-card { background: var(--surface); box-shadow: var(--shadow); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 14px; }
+      .kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.1px; color: var(--muted); margin-bottom: 0.45rem; }
+      .kpi-values { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
+      .kpi-value { font-size: 1.45rem; font-weight: 800; line-height: 1.2; }
+      .kpi-sep { opacity: 0.35; }
+
+      /* Buttons */
+      .stButton > button, .stDownloadButton > button {
+        border-radius: 10px;
+        border: 1px solid var(--border);
+      }
+      .stButton > button[kind="primary"] {
+        background: var(--accent);
+        border: 1px solid rgba(0,0,0,0);
+      }
+      .stButton > button:hover, .stDownloadButton > button:hover {
+        border-color: rgba(91,82,232,.35);
+      }
+
+      /* Dataframes & editor */
+      [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 8px;
+      }
+
+      /* Typography */
+      h1, h2, h3 { letter-spacing: -0.02em; }
+      h2 { font-size: 1.25rem; }
+      h3 { font-size: 1.1rem; }
+      .stCaption, [data-testid="stCaptionContainer"] { color: var(--muted); }
+      [data-testid="stMetricValue"] { font-family: 'Inter', sans-serif; }
+
+      /* Inputs */
+      textarea, input, select {
+        border-radius: 10px !important;
+      }
+      textarea:focus, input:focus, select:focus {
+        border-color: rgba(91,82,232,.55) !important;
+        box-shadow: 0 0 0 3px rgba(91,82,232,.12) !important;
+      }
     </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <div class="ce-topbar">
+      <div class="ce-brand">
+        <div class="ce-mark">CE</div>
+        <div>Análise de Crédito — Extratos Bancários</div>
+      </div>
+      <div class="ce-chip"><span class="ce-dot"></span> Pronto</div>
+    </div>
     """,
     unsafe_allow_html=True,
 )
@@ -327,8 +441,17 @@ def render_transfer_editor(
         st.rerun()
 
 
-st.title("Análise de Crédito por Extratos Bancários")
-st.caption("Leitura flexível de extratos PDF com regras de exclusão automáticas, revisão manual e exportação auditável.")
+st.markdown(
+    "<div class='ce-card' style='margin-bottom: 18px;'>"
+    "<div style='font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1.1px; color:var(--muted);'>"
+    "Visão Geral"
+    "</div>"
+    "<div style='margin-top:6px; color:var(--muted); font-size:13px;'>"
+    "Leitura flexível de extratos PDF com regras de exclusão automáticas, revisão manual e exportação auditável."
+    "</div>"
+    "</div>",
+    unsafe_allow_html=True,
+)
 
 if "analysis_result" not in st.session_state:
     st.session_state["analysis_result"] = None
