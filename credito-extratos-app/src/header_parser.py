@@ -40,6 +40,10 @@ BANK_DISPLAY_NAMES = {
     "banco do brasil": "Banco do Brasil",
 }
 CPF_PATTERN = r"\d{3}\.\d{3}\.\d{3}-\d{2}"
+SANTANDER_AGENCY_ACCOUNT_PATTERN = re.compile(
+    r"^(?P<name>[A-ZÀ-ÿ][A-ZÀ-ÿ ]{5,}?)\s+Ag[eê]ncia\s+e\s+Conta\s*:\s*(?P<agency>\d{3,6})\s*/\s*(?P<account>[\d\.\-xX/]+)\s*$",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
 
 
 def parse_header(text_pages: list[str]) -> HeaderInfo:
@@ -48,9 +52,16 @@ def parse_header(text_pages: list[str]) -> HeaderInfo:
 
     info = HeaderInfo()
     info.bank_name = _detect_bank(header_text, first_page)
-    info.account_holder = _extract_holder(header_text or first_page)
-    info.agency = _extract_agency(header_text or first_page)
-    info.account_number = _extract_account(header_text or first_page)
+
+    santander_candidate = SANTANDER_AGENCY_ACCOUNT_PATTERN.search(header_text or first_page)
+    if santander_candidate:
+        info.account_holder = normalize_text(santander_candidate.group("name"))
+        info.agency = normalize_text(santander_candidate.group("agency"))
+        info.account_number = normalize_text(santander_candidate.group("account"))
+    else:
+        info.account_holder = _extract_holder(header_text or first_page)
+        info.agency = _extract_agency(header_text or first_page)
+        info.account_number = _extract_account(header_text or first_page)
     info.statement_period = _extract_period(header_text or first_page)
 
     return info
@@ -63,9 +74,27 @@ def _detect_bank(header_text: str, first_page: str) -> str:
     if "nubank.com.br" in header_lower or "movimentações" in header_lower:
         return "Nubank"
 
+    santander_markers = (
+        "extrato de conta corrente" in header_lower
+        and ("agência e conta:" in header_lower or "agencia e conta:" in header_lower)
+        and "crédito (r$)" in header_lower
+        and "débito (r$)" in header_lower
+        and "saldo (r$)" in header_lower
+    )
+    if santander_markers:
+        return "Santander"
+
     for bank in BANK_PATTERNS:
+        if bank in {"inter", "c6", "btg"}:
+            continue
         if bank in first_page_lower:
             return BANK_DISPLAY_NAMES.get(bank, bank.title())
+
+    # Avoid false positive: "inter" appears in "internet" and "intermediacao".
+    if re.search(r"\bbanco\s+inter\b", header_lower) or re.search(r"\bc6\s+bank\b", header_lower):
+        return "Inter"
+    if re.search(r"\bbtg\b", header_lower) and "btg pactual" in header_lower:
+        return "BTG"
     return ""
 
 
@@ -131,6 +160,13 @@ def _extract_account(header_text: str) -> str:
 
 def _extract_period(header_text: str) -> str:
     folded = fold_text(header_text)
+    santander_match = re.search(
+        r"per[ií]odo\s*:\s*(\d{2}/\d{2}/\d{4}\s+a\s+\d{2}/\d{2}/\d{4})",
+        folded,
+    )
+    if santander_match:
+        return normalize_text(santander_match.group(1))
+
     bradesco_match = re.search(
         r"movimentacao entre\s*:\s*(\d{2}/\d{2}/\d{4}\s+e\s+\d{2}/\d{2}/\d{4})",
         folded,

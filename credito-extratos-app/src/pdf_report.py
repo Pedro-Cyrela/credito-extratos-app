@@ -103,6 +103,13 @@ def build_pdf_report(
     if not full_w or full_w <= 0:
         full_w = pdf.w - pdf.l_margin - pdf.r_margin
 
+    def section(title: str):
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 7, _pdf_text(title), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_draw_color(220, 220, 220)
+        pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+        pdf.ln(3)
+
     holders = []
     if not headers_df.empty and "titular" in headers_df.columns:
         holders = [h for h in headers_df["titular"].fillna("").astype(str).tolist() if h.strip()]
@@ -157,21 +164,24 @@ def build_pdf_report(
             pdf.multi_cell(value_w, 6, _pdf_text(line), border=0)
         pdf.ln(1)
 
-
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 7, _pdf_text("Resumo"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_draw_color(220, 220, 220)
-    pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
-    pdf.ln(3)
+    section("Resumo executivo")
 
     if holders:
-        pdf.set_font("Helvetica", "", 10)
-        pdf.multi_cell(
-            full_w,
-            5,
-            _pdf_text(f"Titular: {', '.join(holders[:3])}" + ("..." if len(holders) > 3 else "")),
-        )
-        pdf.ln(1)
+        write_kv("Titular", f"{', '.join(holders[:3])}" + ("..." if len(holders) > 3 else ""))
+
+    if not headers_df.empty:
+        first = headers_df.iloc[0].to_dict()
+        banco = (first.get("banco") or "").strip()
+        agencia = (first.get("agencia") or "").strip()
+        conta = (first.get("conta") or "").strip()
+        periodo = (first.get("periodo") or "").strip()
+        if banco:
+            write_kv("Banco", banco)
+        if agencia or conta:
+            value = " / ".join([part for part in [agencia, conta] if part])
+            write_kv("Agência/Conta", value)
+        if periodo:
+            write_kv("Período", periodo)
 
     if fx_quote and display_currency != "BRL":
         write_kv(
@@ -200,16 +210,36 @@ def build_pdf_report(
     else:
         write_kv("Meses", f"{months_count}")
 
-    write_kv("Renda total", _dual_value_text(total, display_currency, fx_quote))
-    write_kv("Renda média", _dual_value_text(renda, display_currency, fx_quote))
-    write_kv("Qtd. créditos", str(qtd))
+    write_kv("Renda total apurada", _dual_value_text(total, display_currency, fx_quote))
+    write_kv("Renda média mensal apurada", _dual_value_text(renda, display_currency, fx_quote))
+    write_kv("Qtd. créditos considerados", str(qtd))
 
-    pdf.ln(4)
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 7, _pdf_text("Créditos considerados"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_draw_color(220, 220, 220)
-    pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
-    pdf.ln(3)
+    section("Resumo inteligente")
+    if summary_df is not None and not summary_df.empty and "total_considerado" in summary_df.columns:
+        summary_clean = summary_df.copy()
+        summary_clean["total_considerado"] = pd.to_numeric(summary_clean["total_considerado"], errors="coerce").fillna(0)
+        best_row = summary_clean.sort_values("total_considerado", ascending=False).iloc[0]
+        best_month = str(best_row.get("mes_ref") or "").strip()
+        best_value = float(best_row.get("total_considerado") or 0)
+        bullets = [
+            f"Foram analisados {months_count} mês(es) com movimentações consideradas dentro do filtro atual.",
+            f"A média mensal considerada está em {_dual_value_text(renda, display_currency, fx_quote)}.",
+        ]
+        if best_month:
+            bullets.append(
+                f"O mês com maior volume considerado foi {best_month}, com {_dual_value_text(best_value, display_currency, fx_quote)}."
+            )
+        pdf.set_font("Helvetica", "", 10)
+        for bullet in bullets:
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(full_w, 6, _pdf_text(f"• {bullet}"), border=0)
+        pdf.ln(2)
+    else:
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(full_w, 6, _pdf_text("Não foi possível construir um resumo inteligente com os dados disponíveis."), border=0)
+        pdf.ln(2)
+
+    section("Créditos considerados")
 
     table_df = considered_df.copy()
     cols = [c for c in ["data", "descricao", "valor"] if c in table_df.columns]
