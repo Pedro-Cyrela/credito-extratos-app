@@ -13,7 +13,7 @@ from .transaction_parser import (
     parse_transaction_tables,
     parse_transactions_from_text,
 )
-from .utils import split_user_terms
+from .utils import normalize_text, split_user_terms
 
 
 def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_raw: str, flexible_names: bool = True) -> dict:
@@ -22,11 +22,14 @@ def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_r
 
     custom_terms = split_user_terms(custom_terms_raw)
     custom_names = split_user_terms(custom_names_raw)
+    auto_holder_names: list[str] = []
 
     for file in uploaded_files:
         pdf_doc = read_pdf(file)
         header = parse_header(pdf_doc.text_pages)
         foreign_detected = detect_foreign_statement(pdf_doc.text_pages)
+        if header.account_holder:
+            auto_holder_names.append(header.account_holder)
         headers.append(
             {
                 "arquivo": pdf_doc.filename,
@@ -47,6 +50,14 @@ def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_r
         combined = deduplicate_transactions(combined)
 
         transaction_frames.append(combined)
+
+    if auto_holder_names:
+        existing = {normalize_text(name) for name in custom_names if normalize_text(name)}
+        for holder in auto_holder_names:
+            cleaned = normalize_text(holder)
+            if cleaned and cleaned not in existing:
+                custom_names.append(cleaned)
+                existing.add(cleaned)
 
     transactions_df = pd.concat(transaction_frames, ignore_index=True) if transaction_frames else pd.DataFrame()
     transactions_df = deduplicate_transactions(transactions_df)

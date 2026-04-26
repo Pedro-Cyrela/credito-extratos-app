@@ -9,6 +9,14 @@ from src.analysis_engine import analyze_uploaded_files
 from src.export_excel import build_excel_export
 from src.fx_ptax import FxQuote, fetch_ptax_sell_quote
 from src.monthly_summary import build_monthly_summary, calculate_global_metrics
+try:
+    from fpdf import FPDF  # noqa: F401
+    from src.pdf_report import build_pdf_report
+
+    PDF_REPORT_AVAILABLE = True
+except ImportError:
+    build_pdf_report = None
+    PDF_REPORT_AVAILABLE = False
 
 
 st.set_page_config(
@@ -281,32 +289,40 @@ def render_transfer_editor(
     editor_key: str,
     button_key: str,
     value_format: str = "%.2f",
+    column_order: list[str] | None = None,
 ):
     if df.empty:
         st.info("Nenhuma linha nesta visão.")
         return
 
-    editor_df = df.copy().set_index("row_id")
+    editor_df = df.copy()
     editor_df[action_label] = False
 
     column_config: dict[str, st.column_config.BaseColumn] = {
         action_label: st.column_config.CheckboxColumn(action_label),
+        "data": st.column_config.DateColumn("data", format="DD/MM/YYYY"),
         "valor": st.column_config.NumberColumn("valor", format=value_format),
     }
     if "valor_brl" in editor_df.columns:
         column_config["valor_brl"] = st.column_config.NumberColumn("valor_brl", format="R$ %.2f")
 
+    if column_order:
+        preferred = [action_label, *[col for col in column_order if col != action_label]]
+        existing = [col for col in preferred if col in editor_df.columns]
+        remaining = [col for col in editor_df.columns if col not in set(existing)]
+        editor_df = editor_df[existing + remaining]
+
     edited_df = st.data_editor(
         editor_df,
         use_container_width=True,
-        hide_index=False,
+        hide_index=True,
         disabled=[column for column in editor_df.columns if column != action_label],
         column_config=column_config,
         key=editor_key,
     )
 
     if st.button(f"Aplicar seleção - {action_label}", key=button_key, use_container_width=True):
-        selected_ids = edited_df.index[edited_df[action_label]].tolist()
+        selected_ids = edited_df.loc[edited_df[action_label], "row_id"].tolist()
         apply_status_change(selected_ids, target_status)
         st.rerun()
 
@@ -366,6 +382,7 @@ if process:
             flexible_names=flexible_names,
         )
         st.session_state["manual_overrides"] = {}
+        st.session_state["pdf_bytes"] = None
         detected_foreign = bool(st.session_state["analysis_result"].get("foreign_detected"))
         st.session_state["foreign_statement_choice"] = "Sim" if detected_foreign else "Nao"
         st.session_state["foreign_currency"] = None
@@ -525,6 +542,23 @@ if result:
         editor_key="considered_editor",
         button_key="considered_button",
         value_format=value_format,
+        column_order=[
+            "data",
+            "descricao",
+            "valor",
+            "valor_brl",
+            "row_id",
+            "mes_ref",
+            "origem_identificada",
+            "tipo_inferido",
+            "status_inicial",
+            "motivo_inicial",
+            "score",
+            "arquivo_origem",
+            "status_final",
+            "motivo_final",
+            "termo_regra",
+        ],
     )
 
     st.subheader("Movimentações desconsideradas")
@@ -535,10 +569,35 @@ if result:
         editor_key="disregarded_editor",
         button_key="disregarded_button",
         value_format=value_format,
+        column_order=[
+            "mes_ref",
+            "data",
+            "descricao",
+            "valor",
+            "valor_brl",
+            "row_id",
+            "origem_identificada",
+            "tipo_inferido",
+            "status_inicial",
+            "motivo_inicial",
+            "score",
+            "arquivo_origem",
+            "status_final",
+            "termo_regra",
+            "motivo_final",
+        ],
     )
 
     st.subheader("Movimentações para revisão")
-    st.dataframe(review_view, use_container_width=True, hide_index=True)
+    review_df = review_view.copy()
+    if "data" in review_df.columns:
+        review_df = review_df.sort_values(["data", "descricao"], na_position="last")
+    st.dataframe(
+        review_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={"data": st.column_config.DateColumn("data", format="DD/MM/YYYY")},
+    )
 
     export_bytes = build_excel_export(
         full_df=filtered_transactions,
@@ -557,6 +616,29 @@ if result:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
     )
+
+    if PDF_REPORT_AVAILABLE:
+        if st.button("Gerar PDF (resumo + créditos considerados)", use_container_width=True, key="pdf_generate"):
+            with st.spinner("Gerando PDF..."):
+                st.session_state["pdf_bytes"] = build_pdf_report(
+                    headers_df=headers_for_export,
+                    metrics=filtered_metrics,
+                    considered_df=considered_view,
+                    display_currency=display_currency,
+                    fx_quote=fx_quote,
+                )
+
+        if st.session_state.get("pdf_bytes"):
+            pdf_filename = f"relatorio_credito_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            st.download_button(
+                "Baixar PDF do relatório",
+                data=st.session_state["pdf_bytes"],
+                file_name=pdf_filename,
+                mime="application/pdf",
+                use_container_width=True,
+            )
+    else:
+        st.caption("PDF indisponível: instale a dependência `fpdf2` para habilitar este recurso.")
 
     if st.session_state.get("manual_overrides"):
         st.info("Existem ajustes manuais aplicados nesta análise.")
