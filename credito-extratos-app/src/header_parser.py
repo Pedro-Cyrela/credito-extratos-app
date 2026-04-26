@@ -74,6 +74,18 @@ def _detect_bank(header_text: str, first_page: str) -> str:
     if "nubank.com.br" in header_lower or "movimentações" in header_lower:
         return "Nubank"
 
+    bb_markers = (
+        "extrato de conta corrente" in header_lower
+        and "lançamentos" in header_lower
+        and "dia" in header_lower
+        and "lote" in header_lower
+        and ("histórico" in header_lower or "historico" in header_lower)
+        and "valor" in header_lower
+        and ("(+)" in header_lower or "(-)" in header_lower)
+    )
+    if bb_markers:
+        return "Banco do Brasil"
+
     santander_markers = (
         "extrato de conta corrente" in header_lower
         and ("agência e conta:" in header_lower or "agencia e conta:" in header_lower)
@@ -100,6 +112,7 @@ def _detect_bank(header_text: str, first_page: str) -> str:
 
 def _extract_holder(header_text: str) -> str:
     holder_patterns = [
+        r"cliente\s+([^\n\r]{5,})",
         r"(?:titular|cliente|nome)\s*[:\-]\s*([^\n\r]{5,})",
         r"^([A-Z][A-Z\s\.]{5,})\s+bankofamerica\.com\b",
         r"(?:titular|cliente|nome)\s*[:\-]\s*([A-ZÀ-ÿ][A-ZÀ-ÿ\s\.]{5,})",
@@ -124,15 +137,15 @@ def _extract_holder(header_text: str) -> str:
         )
 
         if _looks_like_person_name(candidate):
-            return candidate
+            return candidate.replace("*", "").strip()
 
     return ""
 
 
 def _extract_agency(header_text: str) -> str:
     agency_patterns = [
-        r"(?:agencia|agência)\s*[:\-]?\s*(\d{3,6})",
-        r"(?:agencia|agência)\s+(\d{3,6})",
+        r"(?:agencia|agência)\s*[:\-]?\s*([\d\-]{3,10})",
+        r"(?:agencia|agência)\s+([\d\-]{3,10})",
     ]
 
     for pattern in agency_patterns:
@@ -160,6 +173,13 @@ def _extract_account(header_text: str) -> str:
 
 def _extract_period(header_text: str) -> str:
     folded = fold_text(header_text)
+    banco_brasil_match = re.search(
+        r"per[ií]odo\s*:\s*([0-3]?\d\s+a\s+\d{2}/\d{2}/\d{4})",
+        folded,
+    )
+    if banco_brasil_match:
+        return normalize_text(banco_brasil_match.group(1))
+
     santander_match = re.search(
         r"per[ií]odo\s*:\s*(\d{2}/\d{2}/\d{4}\s+a\s+\d{2}/\d{2}/\d{4})",
         folded,

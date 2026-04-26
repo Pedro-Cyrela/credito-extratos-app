@@ -91,6 +91,140 @@ FOREIGN_DEPOSIT_HEADINGS = {
 }
 
 
+BB_MAIN_ROW_PATTERN = re.compile(
+    r"^(?P<date>\d{2}/\d{2}/\d{4})\s+"
+    r"(?P<middle>.+?)\s+"
+    r"(?P<valor>\d{1,3}(?:\.\d{3})*,\d{2})\s+\((?P<sign>[+-])\)\s*$",
+    flags=re.IGNORECASE,
+)
+BB_DETAIL_ROW_PATTERN = re.compile(r"^\d{2}/\d{2}\s+\d{2}:\d{2}\b")
+
+
+def _looks_like_banco_brasil_statement(text_pages: list[str]) -> bool:
+    sample = "\n".join(text_pages[:2])
+    folded = fold_text(sample)
+    return (
+        "extrato de conta corrente" in folded
+        and "lancamentos" in folded
+        and "dia lote documento historico valor" in folded
+    )
+
+
+def _parse_bb_transactions(text_pages: list[str], source_file: str) -> pd.DataFrame:
+    if not _looks_like_banco_brasil_statement(text_pages):
+        return _empty_transactions_df()
+
+    lines: list[str] = []
+    for page_text in text_pages:
+        lines.extend([normalize_text(l) for l in (page_text or "").splitlines() if normalize_text(l)])
+
+    rows: list[dict] = []
+    last_index: int | None = None
+    pending_prefixes: list[str] = []
+
+    def is_category_line(folded_line: str) -> bool:
+        if not folded_line:
+            return False
+        if folded_line.startswith("saldo do dia") or folded_line.startswith("lançamentos"):
+            return True
+        known = (
+            "recebimento de proventos",
+            "compra com cartao",
+            "aplicacao poupanca",
+            "pagamento de boleto",
+            "pagamento conta luz",
+            "pgto conta luz",
+            "pagamento conta agua",
+            "pgto conta agua",
+            "pagamento conta gas",
+            "pgto conta gas",
+            "pgto conta telefone",
+            "pix - enviado",
+            "pix - recebido",
+            "bb rende facil",
+            "rende facil",
+            "saldo anterior",
+        )
+        return folded_line in known or folded_line.startswith(("pgto ", "pix -"))
+
+    def parse_middle(middle: str) -> tuple[str | None, str | None, str]:
+        tokens = [t for t in middle.split() if t]
+        lote = tokens[0] if tokens and tokens[0].isdigit() else None
+        documento = None
+        start = 0
+        if lote is not None:
+            start = 1
+            if len(tokens) > 1 and tokens[1].isdigit():
+                documento = tokens[1]
+                start = 2
+        historico = " ".join(tokens[start:]).strip()
+        return lote, documento, historico
+
+    for line in lines:
+        folded = fold_text(line)
+        if not folded:
+            continue
+
+        if folded.startswith("saldo do dia") or folded.startswith("lançamentos") or folded.startswith("dia lote"):
+            continue
+
+        if folded == "rende facil" and last_index is not None:
+            rows[last_index]["descricao"] = normalize_text(f"{rows[last_index]['descricao']} {line}")
+            continue
+
+        main_match = BB_MAIN_ROW_PATTERN.match(line)
+        if main_match:
+            _, _, historico = parse_middle(main_match.group("middle"))
+            historico = normalize_text(historico)
+
+            dt = parse_date(main_match.group("date"))
+            valor = parse_brl_number(main_match.group("valor"))
+            if dt is None or valor is None:
+                last_index = None
+                continue
+
+            sign = main_match.group("sign")
+            amount = abs(float(valor)) if sign == "+" else -abs(float(valor))
+
+            desc_parts = [*pending_prefixes]
+            pending_prefixes = []
+            if historico:
+                desc_parts.append(historico)
+            description = normalize_text(" ".join(desc_parts)) or historico
+            if fold_text(description).startswith("saldo anterior"):
+                last_index = None
+                continue
+
+            record = _build_record(
+                dt=dt,
+                desc=description,
+                amount=amount,
+                raw_amount_text=main_match.group("valor"),
+                detected_as_credit=sign == "+",
+                detected_as_debit=sign == "-",
+                source_file=source_file,
+            )
+            rows.append(record)
+            last_index = len(rows) - 1
+            continue
+
+        if is_category_line(folded):
+            pending_prefixes.append(line)
+            continue
+
+        if last_index is not None:
+            # Append detail lines (e.g. "01/10 14:21 ...", or beneficiary lines)
+            if BB_DETAIL_ROW_PATTERN.match(line) or any(ch.isalpha() for ch in line):
+                rows[last_index]["descricao"] = normalize_text(f"{rows[last_index]['descricao']} {line}")
+
+    if not rows:
+        return _empty_transactions_df()
+
+    result = pd.DataFrame(rows)
+    result["data"] = pd.to_datetime(result["data"], errors="coerce")
+    return result.sort_values(["data", "descricao"]).reset_index(drop=True)
+
+
 def _best_column(columns: list[str], group: str, threshold: int = 74) -> str | None:
     alias_list = [clean_column_name(alias) for alias in ALIASES.get(group, [])]
     best_name = None
@@ -983,6 +1117,10 @@ def parse_transactions_from_text(
     bradesco_df = _parse_bradesco_transactions(text_pages, source_file, word_pages=word_pages)
     if not bradesco_df.empty:
         return bradesco_df
+
+    bb_df = _parse_bb_transactions(text_pages, source_file)
+    if not bb_df.empty:
+        return bb_df
 
     foreign_deposits_df = _parse_foreign_deposit_transactions(text_pages, source_file)
     if not foreign_deposits_df.empty:
