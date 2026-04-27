@@ -1201,7 +1201,15 @@ def _parse_nubank_transaction_line(
     if not desc:
         return None
 
-    if current_section == "entradas":
+    folded_desc = fold_text(desc)
+    if "recebid" in folded_desc:
+        inferred_section = "entradas"
+    elif any(token in folded_desc for token in ("enviad", "compra no debito", "pagamento ")):
+        inferred_section = "saidas"
+    else:
+        inferred_section = current_section
+
+    if inferred_section == "entradas":
         amount = abs(float(amount_match.value))
         detected_as_credit = True
         detected_as_debit = False

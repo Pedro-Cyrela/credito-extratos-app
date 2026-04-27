@@ -668,6 +668,12 @@ with st.sidebar:
         help="Quando ativo, o motor usa tokens do nome, como primeiro nome e combinações parciais, inclusive cortes comuns do primeiro nome.",
     )
 
+    include_holder_in_exclusions = st.toggle(
+        "Desconsiderar automaticamente o nome do titular detectado",
+        value=False,
+        help="Quando ativo, o app adiciona o nome do titular detectado no PDF como regra de desconsideração.",
+    )
+
     process = st.button("Processar análise", type="primary", use_container_width=True)
 
 if process:
@@ -681,6 +687,7 @@ if process:
             custom_terms_raw=custom_terms_raw,
             custom_names_raw=custom_names_raw,
             flexible_names=flexible_names,
+            include_holder_in_exclusions=include_holder_in_exclusions,
         )
         st.session_state["manual_overrides"] = {}
         st.session_state["pdf_bytes"] = None

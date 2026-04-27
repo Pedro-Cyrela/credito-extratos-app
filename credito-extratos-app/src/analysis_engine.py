@@ -27,7 +27,13 @@ def _ensure_transaction_schema(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_raw: str, flexible_names: bool = True) -> dict:
+def analyze_uploaded_files(
+    uploaded_files,
+    custom_terms_raw: str,
+    custom_names_raw: str,
+    flexible_names: bool = True,
+    include_holder_in_exclusions: bool = False,
+) -> dict:
     headers: list[dict] = []
     transaction_frames: list[pd.DataFrame] = []
 
@@ -64,7 +70,7 @@ def analyze_uploaded_files(uploaded_files, custom_terms_raw: str, custom_names_r
 
         transaction_frames.append(combined)
 
-    if auto_holder_names:
+    if include_holder_in_exclusions and auto_holder_names:
         existing = {normalize_text(name) for name in custom_names if normalize_text(name)}
         for holder in auto_holder_names:
             cleaned = normalize_text(holder)
