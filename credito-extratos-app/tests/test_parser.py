@@ -98,6 +98,33 @@ def test_parse_transactions_from_nubank_text_blocks_and_page_continuation():
     assert result[result["descricao"].str.contains("JAQUELYNE", regex=False)].iloc[0]["valor"] == 50.0
 
 
+def test_parse_transactions_from_nubank_handles_split_day_header_across_pages():
+    text_pages = [
+        (
+            "Lucas Faria Malvao\n"
+            "MovimentaÃ§Ãµes\n"
+            "03 OUT 2025 Total de entradas + 10,00\n"
+            "TransferÃªncia recebida pelo Pix FULANO - 10,00\n"
+            "Total de saÃ­das - 1,00\n"
+            "Compra no dÃ©bito PADARIA 1,00\n"
+            "04 OUT 2025\n"
+        ),
+        (
+            "Total de entradas + 1.128,30\n"
+            "TransferÃªncia Recebida Ricardo Luiz GonÃ§alves de Albuquerque - â€¢â€¢â€¢. 800,00\n"
+            "Total de saÃ­das - 500,00\n"
+            "Pagamento de fatura 500,00\n"
+        ),
+    ]
+
+    result = parse_transactions_from_text(text_pages, "nubank.pdf")
+
+    match = result[result["descricao"].str.contains("Ricardo", regex=False)]
+    assert len(match) == 1
+    assert match.iloc[0]["data"].strftime("%Y-%m-%d") == "2025-10-04"
+    assert match.iloc[0]["valor"] == 800.0
+
+
 def test_parse_foreign_deposits_and_continued_sections():
     text_pages = [
         (

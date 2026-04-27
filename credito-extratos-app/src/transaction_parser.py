@@ -37,6 +37,14 @@ NUBANK_DAY_PATTERN = re.compile(
     r"^(?P<day>\d{2})\s+(?P<month>[A-ZÇ]{3})\s+(?P<year>\d{4})\s+Total de entradas\s+\+\s*(?P<amount>.+)$",
     flags=re.IGNORECASE | re.MULTILINE,
 )
+NUBANK_STANDALONE_DAY_PATTERN = re.compile(
+    r"^(?P<day>\d{2})\s+(?P<month>[A-ZÇ]{3})\s+(?P<year>\d{4})$",
+    flags=re.IGNORECASE,
+)
+NUBANK_TOTAL_IN_PATTERN = re.compile(
+    r"^Total de entradas\s+\+\s*(?P<amount>.+)$",
+    flags=re.IGNORECASE,
+)
 NUBANK_TOTAL_OUT_PATTERN = re.compile(
     r"^Total de sa[ií]das\s+-\s*(?P<amount>.+)$",
     flags=re.IGNORECASE,
@@ -1134,8 +1142,8 @@ def _parse_bradesco_transactions(
 def _looks_like_nubank_statement(text_pages: list[str]) -> bool:
     sample = "\n".join(text_pages[:3])
     lowered = sample.casefold()
-    has_block_headers = bool(NUBANK_DAY_PATTERN.search(sample)) and "total de saídas" in lowered
-    has_identity_markers = "movimentações" in lowered or "nubank.com.br" in lowered or "saldo inicial" in lowered
+    has_block_headers = bool(NUBANK_DAY_PATTERN.search(sample)) and "total de sa" in lowered
+    has_identity_markers = "movimenta" in lowered or "nubank.com.br" in lowered or "saldo inicial" in lowered
     return has_block_headers and has_identity_markers
 
 
@@ -1145,6 +1153,23 @@ def _is_nubank_skip_line(line: str) -> bool:
 
 def _parse_nubank_day(line: str) -> pd.Timestamp | None:
     match = NUBANK_DAY_PATTERN.match(line)
+    if not match:
+        return None
+
+    month_key = normalize_text(match.group("month")).upper()
+    month = PT_MONTHS.get(month_key)
+    if not month:
+        return None
+
+    return pd.Timestamp(
+        year=int(match.group("year")),
+        month=month,
+        day=int(match.group("day")),
+    ).normalize()
+
+
+def _parse_nubank_standalone_day(line: str) -> pd.Timestamp | None:
+    match = NUBANK_STANDALONE_DAY_PATTERN.match(line)
     if not match:
         return None
 
@@ -1202,6 +1227,7 @@ def _parse_nubank_transactions(text_pages: list[str], source_file: str) -> pd.Da
 
     current_date: pd.Timestamp | None = None
     current_section: str | None = None
+    pending_day: pd.Timestamp | None = None
     rows: list[dict] = []
 
     for page_text in text_pages:
@@ -1214,11 +1240,28 @@ def _parse_nubank_transactions(text_pages: list[str], source_file: str) -> pd.Da
             if day_date is not None:
                 current_date = day_date
                 current_section = "entradas"
+                pending_day = None
+                continue
+
+            standalone_day = _parse_nubank_standalone_day(line)
+            if standalone_day is not None:
+                pending_day = standalone_day
+                continue
+
+            if NUBANK_TOTAL_IN_PATTERN.match(line):
+                if pending_day is not None:
+                    current_date = pending_day
+                    pending_day = None
+                    current_section = "entradas"
+                    continue
+                if current_date is not None:
+                    current_section = "entradas"
                 continue
 
             if NUBANK_TOTAL_OUT_PATTERN.match(line):
                 if current_date is not None:
                     current_section = "saidas"
+                    pending_day = None
                 continue
 
             if current_date is None or current_section is None:

@@ -196,6 +196,13 @@ st.markdown(
       [data-testid="stMetricValue"] { font-family: 'Inter', sans-serif; }
 
       /* Inputs */
+      [data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea, [data-testid="stSelectbox"] select {
+        border: 1px solid var(--border) !important;
+        background: var(--surface) !important;
+      }
+      [data-testid="stTextInput"] input:hover, [data-testid="stTextArea"] textarea:hover, [data-testid="stSelectbox"] select:hover {
+        border-color: rgba(91,82,232,.35) !important;
+      }
       textarea, input, select {
         border-radius: 10px !important;
       }
