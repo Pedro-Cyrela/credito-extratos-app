@@ -183,9 +183,23 @@ def to_excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         for name, df in sheets.items():
             safe_name = name[:31]
-            df.to_excel(writer, sheet_name=safe_name, index=False)
+            export_df = df.copy()
+            for col in export_df.columns:
+                if pd.api.types.is_float_dtype(export_df[col]):
+                    export_df[col] = export_df[col].apply(_format_float_ptbr)
+            export_df.to_excel(writer, sheet_name=safe_name, index=False)
     buffer.seek(0)
     return buffer.read()
+
+
+def _format_float_ptbr(value: object) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    try:
+        formatted = f"{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return ""
+    return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def split_user_terms(raw_text: str) -> list[str]:

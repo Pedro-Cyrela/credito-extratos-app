@@ -10,6 +10,7 @@ from src.analysis_engine import analyze_uploaded_files
 from src.export_excel import build_excel_export
 from src.fx_ptax import FxQuote, fetch_ptax_sell_quote
 from src.monthly_summary import build_monthly_summary, calculate_global_metrics
+from src.utils import split_user_terms
 try:
     from fpdf import FPDF  # noqa: F401
     from src.pdf_report import build_pdf_report
@@ -282,6 +283,27 @@ def money(value: float, currency: str = "BRL") -> str:
     return f"{currency} {formatted}"
 
 
+def _format_money_cell(value: object, currency: str) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    try:
+        formatted = f"{float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (TypeError, ValueError):
+        return ""
+    if currency == "BRL":
+        return formatted
+    return f"{currency} {formatted}"
+
+
+def _format_brl_cell(value: object) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    try:
+        return brl(float(value))
+    except (TypeError, ValueError):
+        return ""
+
+
 @st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
 def get_latest_ptax_sell_quote(currency_code: str, reference_date: date) -> FxQuote | None:
     for days_back in range(0, 10):
@@ -514,7 +536,7 @@ def render_transfer_editor(
     target_status: str,
     editor_key: str,
     button_key: str,
-    value_format: str = "%.2f",
+    currency: str = "BRL",
     column_order: list[str] | None = None,
 ):
     if df.empty:
@@ -524,13 +546,18 @@ def render_transfer_editor(
     editor_df = df.copy()
     editor_df[action_label] = False
 
+    if "valor" in editor_df.columns:
+        editor_df["valor"] = editor_df["valor"].apply(lambda v: _format_money_cell(v, currency))
+    if "valor_brl" in editor_df.columns:
+        editor_df["valor_brl"] = editor_df["valor_brl"].apply(_format_brl_cell)
+
     column_config: dict[str, st.column_config.BaseColumn] = {
         action_label: st.column_config.CheckboxColumn(action_label),
         "data": st.column_config.DateColumn("data", format="DD/MM/YYYY"),
-        "valor": st.column_config.NumberColumn("valor", format=value_format),
+        "valor": st.column_config.TextColumn("valor"),
     }
     if "valor_brl" in editor_df.columns:
-        column_config["valor_brl"] = st.column_config.NumberColumn("valor_brl", format="R$ %.2f")
+        column_config["valor_brl"] = st.column_config.TextColumn("valor_brl")
 
     if column_order:
         preferred = [action_label, *[col for col in column_order if col != action_label]]
@@ -552,6 +579,29 @@ def render_transfer_editor(
         apply_status_change(selected_ids, target_status)
         st.rerun()
 
+
+def _add_sidebar_terms(list_key: str, input_key: str):
+    raw = st.session_state.get(input_key, "")
+    terms = split_user_terms(raw)
+    if not terms:
+        return
+    selected = st.session_state.setdefault(list_key, [])
+    existing = {term.lower() for term in selected}
+    for term in terms:
+        if term.lower() in existing:
+            continue
+        selected.append(term)
+        existing.add(term.lower())
+    st.session_state[input_key] = ""
+
+
+def _chips_html(values: list[str]) -> str:
+    if not values:
+        return "<span class='ce-muted'>Nenhum item adicionado.</span>"
+    chips = "".join(f"<span class='ce-chip2'>{html.escape(v)}</span>" for v in values)
+    return f"<div class='ce-chipline'>{chips}</div>"
+
+
 if "analysis_result" not in st.session_state:
     st.session_state["analysis_result"] = None
 if "manual_overrides" not in st.session_state:
@@ -560,6 +610,10 @@ if "foreign_statement_choice" not in st.session_state:
     st.session_state["foreign_statement_choice"] = "Nao"
 if "foreign_currency" not in st.session_state:
     st.session_state["foreign_currency"] = None
+if "custom_names_list" not in st.session_state:
+    st.session_state["custom_names_list"] = []
+if "custom_terms_list" not in st.session_state:
+    st.session_state["custom_terms_list"] = []
 
 with st.sidebar:
     st.header("Parâmetros")
@@ -570,18 +624,36 @@ with st.sidebar:
         help="O app tenta interpretar diferentes layouts de extratos bancários.",
     )
 
-    custom_names_raw = st.text_area(
-        "Nomes de pessoas/empresas para desconsiderar",
-        placeholder="Ex.: PEDRO LUCAS LOPES DE OLIVEIRA\nEMPRESA XPTO LTDA",
-        help="Se o nome aparecer na descrição do crédito, a linha pode ser desconsiderada.",
-        height=140,
+    st.markdown("**Nomes de pessoas/empresas para desconsiderar**")
+    st.caption("Digite e pressione Enter (ou clique fora) para adicionar. Aceita separar por vírgula ou ponto e vírgula.")
+    st.text_input(
+        "Adicionar nome",
+        placeholder="Ex.: EMPRESA XPTO LTDA",
+        key="custom_names_input",
+        on_change=_add_sidebar_terms,
+        args=("custom_names_list", "custom_names_input"),
+        label_visibility="collapsed",
     )
+    st.markdown(_chips_html(st.session_state.get("custom_names_list", [])), unsafe_allow_html=True)
+    if st.button("Limpar nomes", use_container_width=True, key="clear_custom_names"):
+        st.session_state["custom_names_list"] = []
 
-    custom_terms_raw = st.text_area(
-        "Nomenclaturas extras para desconsiderar",
-        placeholder="Ex.: empréstimo entre contas\najuste interno",
-        height=120,
+    st.markdown("**Nomenclaturas extras para desconsiderar**")
+    st.caption("Digite e pressione Enter (ou clique fora) para adicionar. Aceita separar por vírgula ou ponto e vírgula.")
+    st.text_input(
+        "Adicionar nomenclatura",
+        placeholder="Ex.: ajuste interno",
+        key="custom_terms_input",
+        on_change=_add_sidebar_terms,
+        args=("custom_terms_list", "custom_terms_input"),
+        label_visibility="collapsed",
     )
+    st.markdown(_chips_html(st.session_state.get("custom_terms_list", [])), unsafe_allow_html=True)
+    if st.button("Limpar nomenclaturas", use_container_width=True, key="clear_custom_terms"):
+        st.session_state["custom_terms_list"] = []
+
+    custom_names_raw = "\n".join(st.session_state.get("custom_names_list", []))
+    custom_terms_raw = "\n".join(st.session_state.get("custom_terms_list", []))
 
     flexible_names = st.toggle(
         "Aplicar nomes com correspondência flexível",
@@ -721,22 +793,31 @@ if result:
 
     months_count = len(filtered_summary) if isinstance(filtered_summary, pd.DataFrame) else 0
     render_section_header("Resumo mensal", subtitle="Totais por mês de referência.", right_pill=f"{months_count} mês(es)")
-    summary_value_format = "%.2f" if display_currency == "BRL" else f"{display_currency} %.2f"
+    summary_display = filtered_summary.copy()
+    if "total_considerado" in summary_display.columns:
+        summary_display["total_considerado"] = summary_display["total_considerado"].apply(
+            lambda v: _format_money_cell(v, display_currency)
+        )
+    if "total_desconsiderado" in summary_display.columns:
+        summary_display["total_desconsiderado"] = summary_display["total_desconsiderado"].apply(
+            lambda v: _format_money_cell(v, display_currency)
+        )
+    if "total_considerado_brl" in summary_display.columns:
+        summary_display["total_considerado_brl"] = summary_display["total_considerado_brl"].apply(_format_brl_cell)
+    if "total_desconsiderado_brl" in summary_display.columns:
+        summary_display["total_desconsiderado_brl"] = summary_display["total_desconsiderado_brl"].apply(_format_brl_cell)
+
     summary_column_config: dict[str, st.column_config.BaseColumn] = {
-        "total_considerado": st.column_config.NumberColumn("total_considerado", format=summary_value_format),
-        "total_desconsiderado": st.column_config.NumberColumn("total_desconsiderado", format=summary_value_format),
+        "total_considerado": st.column_config.TextColumn("total_considerado"),
+        "total_desconsiderado": st.column_config.TextColumn("total_desconsiderado"),
     }
-    if fx_quote and "total_considerado_brl" in filtered_summary.columns:
-        summary_column_config["total_considerado_brl"] = st.column_config.NumberColumn(
-            "total_considerado_brl", format="R$ %.2f"
-        )
-    if fx_quote and "total_desconsiderado_brl" in filtered_summary.columns:
-        summary_column_config["total_desconsiderado_brl"] = st.column_config.NumberColumn(
-            "total_desconsiderado_brl", format="R$ %.2f"
-        )
+    if "total_considerado_brl" in summary_display.columns:
+        summary_column_config["total_considerado_brl"] = st.column_config.TextColumn("total_considerado_brl")
+    if "total_desconsiderado_brl" in summary_display.columns:
+        summary_column_config["total_desconsiderado_brl"] = st.column_config.TextColumn("total_desconsiderado_brl")
 
     st.dataframe(
-        filtered_summary,
+        summary_display,
         use_container_width=True,
         hide_index=True,
         column_config=summary_column_config,
@@ -756,10 +837,9 @@ if result:
                 - O mês com maior volume considerado foi **{maior_mes['mes_ref']}**, com **{format_dual_amount_md(float(maior_mes['total_considerado']), display_currency, fx_quote)}**.
                 - As movimentações podem ser reclassificadas manualmente nas tabelas abaixo e exportadas no Excel.
                 """
-            )
+    )
 
     considered_view, disregarded_view, review_view = build_views(filtered_transactions)
-    value_format = "%.2f" if display_currency == "BRL" else f"{display_currency} %.2f"
 
     considered_total = (
         float(pd.to_numeric(considered_view.get("valor"), errors="coerce").fillna(0).sum())
@@ -777,7 +857,7 @@ if result:
         target_status="desconsiderado",
         editor_key="considered_editor",
         button_key="considered_button",
-        value_format=value_format,
+        currency=display_currency,
         column_order=[
             "data",
             "descricao",
@@ -813,7 +893,7 @@ if result:
         target_status="considerado",
         editor_key="disregarded_editor",
         button_key="disregarded_button",
-        value_format=value_format,
+        currency=display_currency,
         column_order=[
             "mes_ref",
             "data",
@@ -837,11 +917,20 @@ if result:
     review_df = review_view.copy()
     if "data" in review_df.columns:
         review_df = review_df.sort_values(["data", "descricao"], na_position="last")
+    review_display = review_df.copy()
+    if "valor" in review_display.columns:
+        review_display["valor"] = review_display["valor"].apply(lambda v: _format_money_cell(v, display_currency))
+    if "valor_brl" in review_display.columns:
+        review_display["valor_brl"] = review_display["valor_brl"].apply(_format_brl_cell)
     st.dataframe(
-        review_df,
+        review_display,
         use_container_width=True,
         hide_index=True,
-        column_config={"data": st.column_config.DateColumn("data", format="DD/MM/YYYY")},
+        column_config={
+            "data": st.column_config.DateColumn("data", format="DD/MM/YYYY"),
+            "valor": st.column_config.TextColumn("valor"),
+            "valor_brl": st.column_config.TextColumn("valor_brl"),
+        },
     )
 
     export_bytes = build_excel_export(
