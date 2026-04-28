@@ -9,6 +9,12 @@ import streamlit as st
 from src.analysis_engine import analyze_uploaded_files
 from src.export_excel import build_excel_export
 from src.fx_ptax import FxQuote, fetch_ptax_sell_quote
+from src.manual_overrides import (
+    apply_manual_overrides,
+    ensure_transaction_keys,
+    normalize_manual_overrides,
+    reconcile_manual_overrides,
+)
 from src.monthly_summary import build_monthly_summary, calculate_global_metrics
 from src.utils import split_user_terms
 try:
@@ -290,25 +296,8 @@ def money(value: float, currency: str = "BRL") -> str:
     return f"{currency} {formatted}"
 
 
-def _format_money_cell(value: object, currency: str) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return ""
-    try:
-        formatted = f"{float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (TypeError, ValueError):
-        return ""
-    if currency == "BRL":
-        return formatted
-    return f"{currency} {formatted}"
-
-
-def _format_brl_cell(value: object) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return ""
-    try:
-        return brl(float(value))
-    except (TypeError, ValueError):
-        return ""
+def _money_column_config(label: str | None = None) -> st.column_config.NumberColumn:
+    return st.column_config.NumberColumn(label=label, format="localized", step=0.01)
 
 
 @st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
@@ -496,23 +485,6 @@ def ensure_row_ids(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
-def apply_manual_overrides(df: pd.DataFrame, overrides: dict[int, dict[str, str]]) -> pd.DataFrame:
-    result = df.copy()
-    if result.empty or not overrides:
-        return result
-
-    if "row_id" not in result.columns:
-        result = ensure_row_ids(result)
-
-    for row_id, override_data in overrides.items():
-        mask = result["row_id"] == row_id
-        if not mask.any():
-            continue
-        for column, value in override_data.items():
-            result.loc[mask, column] = value
-    return result
-
-
 
 def build_views(transactions_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     considered_df = transactions_df[
@@ -528,9 +500,14 @@ def apply_status_change(selected_ids: list[int], new_status: str):
     if not selected_ids:
         return
 
+    base_transactions = st.session_state.get("base_transactions")
+    if base_transactions is None or base_transactions.empty:
+        return
+
     overrides = st.session_state.setdefault("manual_overrides", {})
-    for row_id in selected_ids:
-        overrides[int(row_id)] = {
+    selected_rows = base_transactions[base_transactions["row_id"].isin([int(row_id) for row_id in selected_ids])]
+    for _, row in selected_rows.iterrows():
+        overrides[str(row["transaction_key"])] = {
             "status_final": new_status,
             "motivo_final": MANUAL_OVERRIDE_REASON,
         }
@@ -550,21 +527,16 @@ def render_transfer_editor(
         st.info("Nenhuma linha nesta visão.")
         return
 
-    editor_df = df.copy()
+    editor_df = df.drop(columns=["transaction_key"], errors="ignore").copy()
     editor_df[action_label] = False
-
-    if "valor" in editor_df.columns:
-        editor_df["valor"] = editor_df["valor"].apply(lambda v: _format_money_cell(v, currency))
-    if "valor_brl" in editor_df.columns:
-        editor_df["valor_brl"] = editor_df["valor_brl"].apply(_format_brl_cell)
 
     column_config: dict[str, st.column_config.BaseColumn] = {
         action_label: st.column_config.CheckboxColumn(action_label),
         "data": st.column_config.DateColumn("data", format="DD/MM/YYYY"),
-        "valor": st.column_config.TextColumn("valor"),
+        "valor": _money_column_config("valor" if currency == "BRL" else f"valor ({currency})"),
     }
     if "valor_brl" in editor_df.columns:
-        column_config["valor_brl"] = st.column_config.TextColumn("valor_brl")
+        column_config["valor_brl"] = _money_column_config("valor_brl (BRL)")
 
     if column_order:
         preferred = [action_label, *[col for col in column_order if col != action_label]]
@@ -681,15 +653,23 @@ if process:
         st.warning("Envie ao menos um PDF para processar.")
         st.stop()
 
+    previous_result = st.session_state.get("analysis_result")
+    previous_overrides = st.session_state.get("manual_overrides", {})
+    if previous_result:
+        previous_base = ensure_row_ids(ensure_transaction_keys(previous_result["transactions"]))
+        previous_overrides = normalize_manual_overrides(previous_overrides, previous_base)
+
     with st.spinner("Processando PDFs e consolidando a análise..."):
-        st.session_state["analysis_result"] = analyze_uploaded_files(
+        new_result = analyze_uploaded_files(
             uploaded_files=uploaded_files,
             custom_terms_raw=custom_terms_raw,
             custom_names_raw=custom_names_raw,
             flexible_names=flexible_names,
             include_holder_in_exclusions=include_holder_in_exclusions,
         )
-        st.session_state["manual_overrides"] = {}
+        st.session_state["analysis_result"] = new_result
+        new_base = ensure_row_ids(ensure_transaction_keys(new_result["transactions"]))
+        st.session_state["manual_overrides"] = reconcile_manual_overrides(previous_overrides, new_base)
         st.session_state["pdf_bytes"] = None
         detected_foreign = bool(st.session_state["analysis_result"].get("foreign_detected"))
         st.session_state["foreign_statement_choice"] = "Sim" if detected_foreign else "Nao"
@@ -699,7 +679,8 @@ result = st.session_state.get("analysis_result")
 
 if result:
     headers_df = result["headers"]
-    base_transactions = ensure_row_ids(result["transactions"])
+    base_transactions = ensure_row_ids(ensure_transaction_keys(result["transactions"]))
+    st.session_state["base_transactions"] = base_transactions
     transactions_df = apply_manual_overrides(base_transactions, st.session_state.get("manual_overrides", {}))
 
     render_section_header("Cabeçalho dos extratos", subtitle="Dados detectados no PDF (banco, titular, conta, período).")
@@ -808,27 +789,19 @@ if result:
     months_count = len(filtered_summary) if isinstance(filtered_summary, pd.DataFrame) else 0
     render_section_header("Resumo mensal", subtitle="Totais por mês de referência.", right_pill=f"{months_count} mês(es)")
     summary_display = filtered_summary.copy()
-    if "total_considerado" in summary_display.columns:
-        summary_display["total_considerado"] = summary_display["total_considerado"].apply(
-            lambda v: _format_money_cell(v, display_currency)
-        )
-    if "total_desconsiderado" in summary_display.columns:
-        summary_display["total_desconsiderado"] = summary_display["total_desconsiderado"].apply(
-            lambda v: _format_money_cell(v, display_currency)
-        )
-    if "total_considerado_brl" in summary_display.columns:
-        summary_display["total_considerado_brl"] = summary_display["total_considerado_brl"].apply(_format_brl_cell)
-    if "total_desconsiderado_brl" in summary_display.columns:
-        summary_display["total_desconsiderado_brl"] = summary_display["total_desconsiderado_brl"].apply(_format_brl_cell)
 
     summary_column_config: dict[str, st.column_config.BaseColumn] = {
-        "total_considerado": st.column_config.TextColumn("total_considerado"),
-        "total_desconsiderado": st.column_config.TextColumn("total_desconsiderado"),
+        "total_considerado": _money_column_config(
+            "total_considerado" if display_currency == "BRL" else f"total_considerado ({display_currency})"
+        ),
+        "total_desconsiderado": _money_column_config(
+            "total_desconsiderado" if display_currency == "BRL" else f"total_desconsiderado ({display_currency})"
+        ),
     }
     if "total_considerado_brl" in summary_display.columns:
-        summary_column_config["total_considerado_brl"] = st.column_config.TextColumn("total_considerado_brl")
+        summary_column_config["total_considerado_brl"] = _money_column_config("total_considerado_brl (BRL)")
     if "total_desconsiderado_brl" in summary_display.columns:
-        summary_column_config["total_desconsiderado_brl"] = st.column_config.TextColumn("total_desconsiderado_brl")
+        summary_column_config["total_desconsiderado_brl"] = _money_column_config("total_desconsiderado_brl (BRL)")
 
     st.dataframe(
         summary_display,
@@ -931,28 +904,24 @@ if result:
     review_df = review_view.copy()
     if "data" in review_df.columns:
         review_df = review_df.sort_values(["data", "descricao"], na_position="last")
-    review_display = review_df.copy()
-    if "valor" in review_display.columns:
-        review_display["valor"] = review_display["valor"].apply(lambda v: _format_money_cell(v, display_currency))
-    if "valor_brl" in review_display.columns:
-        review_display["valor_brl"] = review_display["valor_brl"].apply(_format_brl_cell)
+    review_display = review_df.drop(columns=["transaction_key"], errors="ignore")
     st.dataframe(
         review_display,
         use_container_width=True,
         hide_index=True,
         column_config={
             "data": st.column_config.DateColumn("data", format="DD/MM/YYYY"),
-            "valor": st.column_config.TextColumn("valor"),
-            "valor_brl": st.column_config.TextColumn("valor_brl"),
+            "valor": _money_column_config("valor" if display_currency == "BRL" else f"valor ({display_currency})"),
+            "valor_brl": _money_column_config("valor_brl (BRL)"),
         },
     )
 
     export_bytes = build_excel_export(
-        full_df=filtered_transactions,
+        full_df=filtered_transactions.drop(columns=["transaction_key"], errors="ignore"),
         summary_df=filtered_summary,
-        considered_df=considered_view,
-        disregarded_df=disregarded_view,
-        review_df=review_view,
+        considered_df=considered_view.drop(columns=["transaction_key"], errors="ignore"),
+        disregarded_df=disregarded_view.drop(columns=["transaction_key"], errors="ignore"),
+        review_df=review_view.drop(columns=["transaction_key"], errors="ignore"),
         metadata_df=headers_for_export,
     )
 
@@ -972,7 +941,7 @@ if result:
                     headers_df=headers_for_export,
                     metrics=filtered_metrics,
                     summary_df=filtered_summary,
-                    considered_df=considered_view,
+                    considered_df=considered_view.drop(columns=["transaction_key"], errors="ignore"),
                     display_currency=display_currency,
                     fx_quote=fx_quote,
                 )
