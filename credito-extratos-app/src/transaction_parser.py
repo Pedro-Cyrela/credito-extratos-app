@@ -1185,6 +1185,19 @@ def _parse_nubank_standalone_day(line: str) -> pd.Timestamp | None:
     ).normalize()
 
 
+def _normalize_nubank_description(desc: str) -> str:
+    normalized = normalize_text(desc)
+    folded = fold_text(normalized)
+
+    if (
+        folded.startswith("valor adicionado na conta por")
+        and "valor adicionado para pix no credito" in folded
+    ):
+        return "Valor adicionado na conta por cartão Valor adicionado para Pix no Crédito"
+
+    return normalized
+
+
 def _parse_nubank_transaction_line(
     line: str,
     current_date: pd.Timestamp,
@@ -1198,6 +1211,7 @@ def _parse_nubank_transaction_line(
     amount_match = amount_matches[-1]
     desc = normalize_text(line[:amount_match.start])
     desc = re.sub(r"\s*-\s*$", "", desc).strip()
+    desc = _normalize_nubank_description(desc)
     if not desc:
         return None
 

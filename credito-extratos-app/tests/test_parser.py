@@ -125,6 +125,32 @@ def test_parse_transactions_from_nubank_handles_split_day_header_across_pages():
     assert match.iloc[0]["valor"] == 800.0
 
 
+def test_parse_transactions_from_nubank_normalizes_pix_no_credit_variants():
+    text_pages = [
+        (
+            "Joao Pedro de Sousa Soares Leitao\n"
+            "Movimentações\n"
+            "26 JAN 2026 Total de entradas + 1.207,31\n"
+            "Valor adicionado na conta por Valor adicionado para Pix no Crédito 4,31\n"
+            "cartão de crédito\n"
+            "Transferência recebida pelo Pix FULANO - 1.203,00\n"
+            "Total de saídas - 4,31\n"
+        ),
+        (
+            "08 MAR 2026 Total de entradas + 607,00\n"
+            "Valor adicionado na conta por cartão Valor adicionado para Pix no Crédito 7,00\n"
+            "de crédito\n"
+            "Total de saídas - 7,00\n"
+        ),
+    ]
+
+    result = parse_transactions_from_text(text_pages, "nubank.pdf")
+
+    matched = result[result["descricao"] == "Valor adicionado na conta por cartão Valor adicionado para Pix no Crédito"]
+    assert len(matched) == 2
+    assert sorted(matched["valor"].tolist()) == [4.31, 7.0]
+
+
 def test_parse_foreign_deposits_and_continued_sections():
     text_pages = [
         (
