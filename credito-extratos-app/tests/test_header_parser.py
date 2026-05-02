@@ -63,3 +63,42 @@ def test_parse_header_handles_bank_of_america_metadata():
     assert header.account_holder == "MARIA A POSADA DUQUE"
     assert header.account_number == "4830 2436 2176"
     assert header.statement_period == "January 22, 2026 to February 18, 2026"
+
+
+def test_parse_header_handles_c6_metadata():
+    text_pages = [
+        (
+            "Extrato exportado no dia 2 de maio de 2026 às 15:27\n"
+            "RAPHAELA GOMES DE CARVALHO BENTO • 203.723.007-90\n"
+            "Agência: 1 • Conta: 167306170\n"
+            "Extrato Período • 3 de novembro de 2025 até 2 de maio de 2026\n"
+        ),
+        "No app do C6 Bank\n",
+    ]
+
+    header = parse_header(text_pages)
+
+    assert header.bank_name == "C6 Bank"
+    assert header.account_holder == "RAPHAELA GOMES DE CARVALHO BENTO"
+    assert header.agency == "1"
+    assert header.account_number == "167306170"
+    assert header.statement_period == "3 de novembro de 2025 até 2 de maio de 2026"
+
+
+def test_parse_header_handles_itau_personnalite_inline_holder_metadata():
+    text_pages = [
+        (
+            "ERICA CRUZEIRO MOREIRA CPF: 070.090.687-80 agência: 3830 conta: 12125-1\n"
+            "saldo em conta Limite da Conta utilizado Limite da Conta disponível Limite da Conta total*\n"
+            "extrato conta corrente\n"
+            "lançamentos\n"
+            "período de visualização: de 01/11/2025 até 02/05/2026 emitido em: 02/05/2026 14:54:34\n"
+        )
+    ]
+
+    header = parse_header(text_pages)
+
+    assert header.bank_name == "Itaú"
+    assert header.account_holder == "ERICA CRUZEIRO MOREIRA"
+    assert header.agency == "3830"
+    assert header.account_number == "12125-1"

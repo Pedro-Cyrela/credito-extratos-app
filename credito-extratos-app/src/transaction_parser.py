@@ -98,6 +98,15 @@ FOREIGN_DEPOSIT_HEADINGS = {
     "deposits and other additions - continued",
 }
 
+C6_MONTH_HEADER_PATTERN = re.compile(
+    r"^(?P<month>[A-Za-zÀ-ÿç]+)\s+(?P<year>\d{4})\s+\(\s*(?P<start>\d{2}/\d{2}/\d{4})\s*-\s*(?P<end>\d{2}/\d{2}/\d{4})\s*\)",
+    flags=re.IGNORECASE,
+)
+C6_TRANSACTION_PATTERN = re.compile(
+    r"^(?P<posted>\d{2}/\d{2})\s+(?P<booked>\d{2}/\d{2})\s+(?P<kind>.+?)\s+(?P<amount>[+\-]?R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}|[+\-]?R\$\s*\d+,\d{2})$",
+    flags=re.IGNORECASE,
+)
+
 EAGLE_DAY_PATTERN = re.compile(
     r"^(?P<day>\d{1,2})\s+(?P<month>[A-ZÇ]{3})\s+(?P<year>\d{4})\b",
     flags=re.IGNORECASE,
@@ -356,6 +365,104 @@ def _parse_eagle_broker_transactions(text_pages: list[str], source_file: str) ->
         # Details for previous record (beneficiary, reference, time)
         if last_index is not None and any(ch.isalpha() for ch in line):
             rows[last_index]["descricao"] = normalize_text(f"{rows[last_index]['descricao']} {line}")
+
+    if not rows:
+        return _empty_transactions_df()
+
+    result = pd.DataFrame(rows)
+    result["data"] = pd.to_datetime(result["data"], errors="coerce")
+    return result.sort_values(["data", "descricao"]).reset_index(drop=True)
+
+
+def _looks_like_c6_statement(text_pages: list[str]) -> bool:
+    sample = "\n".join(text_pages[:3])
+    folded = fold_text(sample)
+    return (
+        "extrato exportado no dia" in folded
+        and "extrato periodo" in folded
+        and "data data tipo descricao valor" in folded
+    )
+
+
+def _parse_c6_transaction_date(value: str, section_year: int) -> pd.Timestamp | None:
+    match = re.fullmatch(r"(?P<day>\d{2})/(?P<month>\d{2})", normalize_text(value))
+    if not match:
+        return None
+
+    try:
+        return pd.Timestamp(
+            year=section_year,
+            month=int(match.group("month")),
+            day=int(match.group("day")),
+        ).normalize()
+    except ValueError:
+        return None
+
+
+def _is_c6_noise_line(line: str) -> bool:
+    folded = fold_text(line)
+    return (
+        not folded
+        or folded in {"data data", "tipo descricao valor", "lancamento contabil"}
+        or folded.startswith("saldo do dia")
+        or folded == "sem lancamentos no mes"
+        or folded.startswith("informacoes sujeitas a alteracao")
+        or folded.startswith("atendimento 24 horas")
+        or folded.startswith("chat para clientes")
+        or folded.startswith("capitais e regioes")
+        or folded.startswith("no app do c6 bank")
+        or folded.startswith("demais localidades")
+        or folded.startswith("abra uma conta para")
+        or folded.startswith("sac")
+        or folded.startswith("voce e sua empresa")
+        or folded.startswith("whatsapp 24 horas")
+        or folded.startswith("baixe o app pelo qr code")
+        or folded.startswith("ouvidoria")
+        or re.fullmatch(r"[\d()\s-]{8,}", folded) is not None
+    )
+
+
+def _parse_c6_transactions(text_pages: list[str], source_file: str) -> pd.DataFrame:
+    if not _looks_like_c6_statement(text_pages):
+        return _empty_transactions_df()
+
+    rows: list[dict] = []
+    current_year: int | None = None
+
+    for page_text in text_pages:
+        for raw_line in page_text.splitlines():
+            line = normalize_text(raw_line)
+            if not line:
+                continue
+
+            month_match = C6_MONTH_HEADER_PATTERN.match(line)
+            if month_match:
+                current_year = int(month_match.group("year"))
+                continue
+
+            if _is_c6_noise_line(line):
+                continue
+
+            match = C6_TRANSACTION_PATTERN.match(line)
+            if not match or current_year is None:
+                continue
+
+            dt = _parse_c6_transaction_date(match.group("posted"), current_year)
+            amount = parse_brl_number(match.group("amount"))
+            if dt is None or amount is None:
+                continue
+
+            rows.append(
+                _build_record(
+                    dt=dt,
+                    desc=normalize_text(match.group("kind")),
+                    amount=float(amount),
+                    raw_amount_text=match.group("amount"),
+                    detected_as_credit=float(amount) > 0,
+                    detected_as_debit=float(amount) < 0,
+                    source_file=source_file,
+                )
+            )
 
     if not rows:
         return _empty_transactions_df()
@@ -1322,6 +1429,10 @@ def parse_transactions_from_text(
     eagle_df = _parse_eagle_broker_transactions(text_pages, source_file)
     if not eagle_df.empty:
         return eagle_df
+
+    c6_df = _parse_c6_transactions(text_pages, source_file)
+    if not c6_df.empty:
+        return c6_df
 
     foreign_deposits_df = _parse_foreign_deposit_transactions(text_pages, source_file)
     if not foreign_deposits_df.empty:

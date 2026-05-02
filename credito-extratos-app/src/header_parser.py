@@ -36,6 +36,7 @@ BANK_PATTERNS = [
 BANK_DISPLAY_NAMES = {
     "bank of america": "Bank of America",
     "bradesco": "Bradesco",
+    "c6": "C6 Bank",
     "nubank": "Nubank",
     "banco do brasil": "Banco do Brasil",
 }
@@ -96,14 +97,26 @@ def _detect_bank(header_text: str, first_page: str) -> str:
     if santander_markers:
         return "Santander"
 
+    itau_markers = (
+        "extrato conta corrente" in header_lower
+        and "lançamentos" in header_lower
+        and "período de visualização" in header_lower
+        and "saldo em conta" in header_lower
+    )
+    if itau_markers:
+        return "Itaú"
+
     for bank in BANK_PATTERNS:
         if bank in {"inter", "c6", "btg"}:
             continue
         if bank in first_page_lower:
             return BANK_DISPLAY_NAMES.get(bank, bank.title())
 
+    if re.search(r"\bc6\s+bank\b", header_lower):
+        return "C6 Bank"
+
     # Avoid false positive: "inter" appears in "internet" and "intermediacao".
-    if re.search(r"\bbanco\s+inter\b", header_lower) or re.search(r"\bc6\s+bank\b", header_lower):
+    if re.search(r"\bbanco\s+inter\b", header_lower):
         return "Inter"
     if re.search(r"\bbtg\b", header_lower) and "btg pactual" in header_lower:
         return "BTG"
@@ -111,6 +124,33 @@ def _detect_bank(header_text: str, first_page: str) -> str:
 
 
 def _extract_holder(header_text: str) -> str:
+    first_line = normalize_text(header_text.splitlines()[0] if header_text.splitlines() else "")
+    inline_name_match = re.match(r"^(?P<name>.+?)\s+CPF\s*:\s*" + CPF_PATTERN, first_line, flags=re.IGNORECASE)
+    if inline_name_match:
+        candidate = normalize_text(inline_name_match.group("name"))
+        if _looks_like_person_name(candidate):
+            return candidate.replace("*", "").strip()
+
+    cpf_inline_match = re.search(
+        rf"^(?P<name>[A-ZÀ-ÿ][A-ZÀ-ÿ\s]{{5,}}?)\s+CPF\s*:\s*{CPF_PATTERN}(?:\s+(?:agencia|agência|conta)\b|$)",
+        header_text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    if cpf_inline_match:
+        candidate = normalize_text(cpf_inline_match.group("name"))
+        if _looks_like_person_name(candidate):
+            return candidate.replace("*", "").strip()
+
+    bullet_cpf_match = re.search(
+        rf"([A-ZÀ-İ][A-ZÀ-İ\s]{{5,}}?)\s+[•\-\|]\s*({CPF_PATTERN})",
+        header_text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    if bullet_cpf_match:
+        candidate = normalize_text(bullet_cpf_match.group(1))
+        if _looks_like_person_name(candidate):
+            return candidate.replace("*", "").strip()
+
     holder_patterns = [
         r"cliente\s+([^\n\r]{5,})",
         r"(?:titular|cliente|nome)\s*[:\-]\s*([^\n\r]{5,})",
@@ -143,6 +183,18 @@ def _extract_holder(header_text: str) -> str:
 
 
 def _extract_agency(header_text: str) -> str:
+    inline_match = re.search(
+        r"CPF\s*:\s*" + CPF_PATTERN + r"\s+ag[êe]ncia:\s*([\d\-]{1,10})",
+        header_text,
+        flags=re.IGNORECASE,
+    )
+    if inline_match:
+        return normalize_text(inline_match.group(1))
+
+    c6_match = re.search(r"Agência:\s*([\d\-]{1,10})\s*[•\|]\s*Conta:", header_text, flags=re.IGNORECASE)
+    if c6_match:
+        return normalize_text(c6_match.group(1))
+
     agency_patterns = [
         r"(?:agencia|agência)\s*[:\-]?\s*([\d\-]{3,10})",
         r"(?:agencia|agência)\s+([\d\-]{3,10})",
@@ -157,6 +209,14 @@ def _extract_agency(header_text: str) -> str:
 
 
 def _extract_account(header_text: str) -> str:
+    c6_match = re.search(
+        r"Agência:\s*[\d\-]{1,10}\s*[•\|]\s*Conta:\s*([\d\.\-xX/]+)",
+        header_text,
+        flags=re.IGNORECASE,
+    )
+    if c6_match:
+        return normalize_text(c6_match.group(1))
+
     account_patterns = [
         r"account\s*(?:number|#)\s*[:#]?\s*([\d\s\-]+)",
         r"(?:conta(?: corrente)?|cc)\s*[:\-]?\s*([\d\.\-xX/]+)",
@@ -201,6 +261,14 @@ def _extract_period(header_text: str) -> str:
     )
     if foreign_match:
         return normalize_text(foreign_match.group(1))
+
+    c6_match = re.search(
+        r"extrato\s+per[ií]odo\s*[•\-\:]?\s*([0-3]?\d\s+de\s+[a-zà-ÿç]+\s+de\s+\d{4}\s+at[eé]\s+[0-3]?\d\s+de\s+[a-zà-ÿç]+\s+de\s+\d{4})",
+        header_text,
+        flags=re.IGNORECASE,
+    )
+    if c6_match:
+        return normalize_text(c6_match.group(1))
 
     period_pattern = r"(?:periodo|período|extrato de)\s*[:\-]?\s*([0-9/\saAaté\-]+)"
     match = re.search(period_pattern, header_text, flags=re.IGNORECASE)

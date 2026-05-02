@@ -226,6 +226,56 @@ def test_parse_bradesco_word_layout_uses_physical_credit_debit_columns():
     assert inss["tipo_inferido"] == "credito"
 
 
+def test_parse_transactions_from_c6_monthly_statement():
+    text_pages = [
+        (
+            "Extrato exportado no dia 2 de maio de 2026 às 15:27\n"
+            "RAPHAELA GOMES DE CARVALHO BENTO • 203.723.007-90\n"
+            "Agência: 1 • Conta: 167306170\n"
+            "Extrato Período • 3 de novembro de 2025 até 2 de maio de 2026\n"
+            "Novembro 2025 ( 03/11/2025 - 30/11/2025 ) Entradas: R$ 0,00 • Saídas: R$ 354,00\n"
+            "Data Data\n"
+            "Tipo Descrição Valor\n"
+            "lançamento contábil\n"
+            "06/11 05/11 Saída PIX Pix enviado para GOOGLE BRASIL INTERNET LTDA. -R$ 100,00\n"
+            "08/11 10/11 Pagamento CLUBE DE PERMUTA -R$ 39,00\n"
+            "Saldo do dia 12/11/25 R$ 398,87\n"
+            "30/11 01/12 Saída PIX Pix enviado para GOOGLE BRASIL INTERNET LTDA. -R$ 100,00\n"
+            "Janeiro 2026 ( 01/01/2026 - 31/01/2026 ) Entradas: R$ 3.620,96 • Saídas: R$ 3.736,17\n"
+            "Data Data\n"
+            "Tipo Descrição Valor\n"
+            "lançamento contábil\n"
+            "02/01 02/01 Entrada PIX Pix recebido de PRJ CONSULTORIA E MARKETING LTDA R$ 721,48\n"
+            "02/01 02/01 Pagamento PGTO FAT CARTAO C6 -R$ 3.621,17\n"
+        ),
+        (
+            "Data Data\n"
+            "Tipo Descrição Valor\n"
+            "lançamento contábil\n"
+            "22/01 22/01 Entradas CASHBACK ATOMOS R$ 152,48\n"
+            "Saldo do dia 22/01/26 R$ 60,76\n"
+            "Abril 2026 ( 01/04/2026 - 30/04/2026 ) Entradas: R$ 0,00 • Saídas: R$ 0,00\n"
+            "Sem lançamentos no mês\n"
+            "No app do C6 Bank\n"
+        ),
+    ]
+
+    result = parse_transactions_from_text(text_pages, "c6.pdf")
+
+    assert len(result) == 6
+    assert result.iloc[0]["data"].strftime("%Y-%m-%d") == "2025-11-06"
+    assert result.iloc[0]["descricao"] == "Saída PIX Pix enviado para GOOGLE BRASIL INTERNET LTDA."
+    assert result.iloc[0]["valor"] == -100.0
+
+    pix_credit = result[result["descricao"].str.contains("PRJ CONSULTORIA", regex=False)].iloc[0]
+    assert pix_credit["data"].strftime("%Y-%m-%d") == "2026-01-02"
+    assert pix_credit["valor"] == 721.48
+    assert pix_credit["tipo_inferido"] == "credito"
+
+    cashback = result[result["descricao"] == "Entradas CASHBACK ATOMOS"].iloc[0]
+    assert cashback["valor"] == 152.48
+
+
 def _word_rows(rows):
     words = []
     for row_index, row in enumerate(rows):
