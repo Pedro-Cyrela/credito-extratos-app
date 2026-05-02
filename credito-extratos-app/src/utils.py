@@ -146,6 +146,10 @@ def parse_date(value: object) -> Optional[pd.Timestamp]:
     if not text:
         return None
 
+    # Reject partial dates that some pandas versions may coerce into year 0001.
+    if re.fullmatch(r"\d{2}/\d{2}", text) or re.fullmatch(r"\d{2}/\d{4}", text):
+        return None
+
     known_formats = (
         "%d/%m/%Y",
         "%d/%m/%y",
@@ -157,10 +161,14 @@ def parse_date(value: object) -> Optional[pd.Timestamp]:
     for fmt in known_formats:
         parsed = pd.to_datetime(text, format=fmt, errors="coerce")
         if not pd.isna(parsed):
+            if parsed.year < 1900:
+                return None
             return parsed.normalize()
 
     parsed = pd.to_datetime(text, errors="coerce", dayfirst=True)
     if not pd.isna(parsed):
+        if parsed.year < 1900:
+            return None
         return parsed.normalize()
 
     return None
