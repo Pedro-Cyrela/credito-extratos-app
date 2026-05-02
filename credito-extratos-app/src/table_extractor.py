@@ -7,6 +7,20 @@ import pandas as pd
 from .utils import normalize_text
 
 
+def _make_unique_columns(columns: list[str]) -> list[str]:
+    seen: dict[str, int] = {}
+    unique: list[str] = []
+
+    for index, raw_name in enumerate(columns):
+        base_name = normalize_text(raw_name) or f"col_{index}"
+        count = seen.get(base_name, 0)
+        unique_name = base_name if count == 0 else f"{base_name}_{count}"
+        seen[base_name] = count + 1
+        unique.append(unique_name)
+
+    return unique
+
+
 def tables_to_dataframes(raw_tables: list[list[list[str | None]]]) -> list[pd.DataFrame]:
     dataframes: list[pd.DataFrame] = []
 
@@ -23,6 +37,7 @@ def tables_to_dataframes(raw_tables: list[list[list[str | None]]]) -> list[pd.Da
 
         max_len = max(len(header), *(len(r) for r in body))
         header = header + [f"col_{i}" for i in range(len(header), max_len)]
+        header = _make_unique_columns(header)
         normalized_rows = [r + [""] * (max_len - len(r)) for r in body]
         df = pd.DataFrame(normalized_rows, columns=header)
 

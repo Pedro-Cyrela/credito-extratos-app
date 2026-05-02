@@ -1,5 +1,6 @@
 import pandas as pd
 
+from src.table_extractor import tables_to_dataframes
 from src.transaction_parser import (
     deduplicate_transactions,
     detect_foreign_statement,
@@ -33,6 +34,20 @@ def test_parse_transaction_tables_handles_cd_suffix_in_generic_amount_column():
     assert result.loc[0, "valor"] == 1000.0
     assert result.loc[1, "tipo_inferido"] == "debito"
     assert result.loc[1, "valor"] == -250.0
+
+
+def test_tables_to_dataframes_makes_duplicate_headers_unique():
+    raw_tables = [
+        [
+            ["02/01", "02/01", "", "", "R$ 721,48"],
+            ["", "02/01", "Entrada PIX", "Pix recebido de FULANO", ""],
+            ["02/01", "02/01", "Pagamento", "PGTO FAT CARTAO C6", "-R$ 3.621,17"],
+        ]
+    ]
+
+    [df] = tables_to_dataframes(raw_tables)
+
+    assert list(df.columns) == ["02/01", "02/01_1", "col_2", "col_3", "R$ 721,48"]
 
 
 def test_parse_transactions_from_text_uses_amount_before_balance():
