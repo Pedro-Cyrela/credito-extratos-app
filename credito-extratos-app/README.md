@@ -1,69 +1,71 @@
-# Análise de Crédito por Extratos Bancários
+# Analise de Credito por Extratos Bancarios
 
-Aplicação Streamlit para análise de renda/crédito a partir de extratos bancários em PDF, com foco em:
+Aplicacao Streamlit para analise de renda/credito a partir de extratos bancarios em PDF, preparada para uso local em `localhost`.
 
-- leitura flexível de diferentes layouts;
-- identificação de titular, banco e conta;
-- localização de colunas como **data**, **descrição**, **crédito**, **débito** e **valor**;
-- interpretação de PDFs com **coluna única de valor** usando sinais `+` / `-`;
-- exclusão automática de **resgates, rendimentos, aplicações e investimentos**;
-- regras personalizadas informadas pelo usuário;
-- painel de resumo mensal sem foco em gráficos;
-- exportação auditável em **Excel**.
+## O que o app faz
 
-## Como executar localmente
+- le diferentes layouts de extrato;
+- identifica titular, banco, conta e periodo;
+- localiza colunas como `data`, `descricao`, `credito`, `debito` e `valor`;
+- interpreta PDFs com coluna unica de valor usando sinais `+` e `-`;
+- desconsidera automaticamente resgates, rendimentos, aplicacoes e investimentos;
+- aceita regras manuais informadas na interface;
+- gera resumo mensal e exportacao auditavel em Excel.
+
+## Execucao local
+
+### 1. Instale as dependencias
 
 ```bash
 pip install -r requirements.txt
+```
+
+### 2. Rode o app
+
+Opcao direta:
+
+```bash
 streamlit run app.py
 ```
 
-## Deploy no Streamlit Community Cloud
+Opcao PowerShell no Windows:
 
-1. Suba este projeto para um repositório no GitHub.
-2. Acesse o Streamlit Community Cloud.
-3. Crie um novo app apontando para o repositório.
-4. Defina `app.py` como arquivo principal.
+```powershell
+.\run_local.ps1
+```
+
+O projeto inclui `.streamlit/config.toml`, deixando o Streamlit configurado para:
+
+- subir em `localhost`;
+- usar a porta `8501`;
+- desabilitar coleta de telemetria do navegador.
+
+Abra no navegador:
+
+```text
+http://localhost:8501
+```
 
 ## Estrutura
 
 ```text
 credito-extratos-app/
-├── app.py
-├── requirements.txt
-├── README.md
-├── .gitignore
-├── config/
-│   ├── column_aliases.json
-│   └── exclusion_terms_default.json
-├── src/
-│   ├── __init__.py
-│   ├── analysis_engine.py
-│   ├── credit_classifier.py
-│   ├── exclusion_rules.py
-│   ├── export_excel.py
-│   ├── header_parser.py
-│   ├── monthly_summary.py
-│   ├── pdf_reader.py
-│   ├── table_extractor.py
-│   ├── transaction_parser.py
-│   └── utils.py
-└── tests/
-    ├── test_classifier.py
-    ├── test_parser.py
-    └── test_rules.py
+|-- .streamlit/
+|   `-- config.toml
+|-- app.py
+|-- run_local.ps1
+|-- requirements.txt
+|-- README.md
+|-- config/
+|   |-- column_aliases.json
+|   `-- exclusion_terms_default.json
+|-- src/
+`-- tests/
 ```
 
-## Observações importantes
+## Observacoes
 
-- O motor tenta extrair dados de PDFs pesquisáveis / tabulares.
-- PDFs totalmente escaneados podem exigir OCR em uma evolução futura.
-- O app foi desenhado para ser **útil mesmo em cenários imperfeitos**: quando a classificação não for suficiente, o usuário consegue baixar o Excel detalhado com `data`, `descrição`, `origem identificada`, `valor`, `status`, `motivo`, `titular` e `conta`.
-
-## Próximas evoluções recomendadas
-
-- OCR para PDFs escaneados;
-- regras específicas por banco;
-- armazenamento de perfis de restrições;
-- revisão assistida por nível de confiança;
-- relatório PDF institucional.
+- Nao ha dependencia de Streamlit Community Cloud para executar o app.
+- Nao e necessario publicar em GitHub para uso local.
+- O motor funciona melhor com PDFs pesquisaveis/tabulares.
+- PDFs totalmente escaneados ainda podem exigir OCR em evolucao futura.

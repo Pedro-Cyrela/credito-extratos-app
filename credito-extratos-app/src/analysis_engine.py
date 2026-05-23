@@ -18,7 +18,7 @@ from .utils import normalize_text, split_user_terms
 
 
 def _ensure_transaction_schema(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
+    if df is None:
         return pd.DataFrame(columns=TRANSACTION_COLUMNS)
     result = df.copy()
     for col in TRANSACTION_COLUMNS:

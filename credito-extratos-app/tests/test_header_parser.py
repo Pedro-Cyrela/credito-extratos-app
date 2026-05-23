@@ -82,7 +82,7 @@ def test_parse_header_handles_c6_metadata():
     assert header.account_holder == "RAPHAELA GOMES DE CARVALHO BENTO"
     assert header.agency == "1"
     assert header.account_number == "167306170"
-    assert header.statement_period == "3 de novembro de 2025 até 2 de maio de 2026"
+    assert header.statement_period == "3 de novembro de 2025 ate 2 de maio de 2026"
 
 
 def test_parse_header_handles_itau_personnalite_inline_holder_metadata():
@@ -102,3 +102,39 @@ def test_parse_header_handles_itau_personnalite_inline_holder_metadata():
     assert header.account_holder == "ERICA CRUZEIRO MOREIRA"
     assert header.agency == "3830"
     assert header.account_number == "12125-1"
+
+
+def test_parse_header_handles_nubank_pj_holder_with_cnpj_on_next_line():
+    text_pages = [
+        (
+            "28.260.680 THAINA SILVA ALVES DA COSTA\n"
+            "CNPJ 28.260.680/0001-00 Agência 0001 Conta\n"
+            "58300273-3\n"
+            "Movimentações\n"
+        )
+    ]
+
+    header = parse_header(text_pages)
+
+    assert header.bank_name == "Nubank"
+    assert header.account_holder == "THAINA SILVA ALVES DA COSTA"
+    assert header.agency == "0001"
+    assert header.account_number == "58300273-3"
+
+
+def test_parse_header_handles_inter_holder_above_cpf_cnpj_line():
+    text_pages = [
+        (
+            "Solicitado em: 02/05/2026 - 15h01\n"
+            "LETICIA JOANNI MATTEDI 14553370727\n"
+            "CPF/CNPJ: 36.573.294/0001-98, Instituição: Banco Inter, Agência: 0001-9, Conta: 18866265-0\n"
+            "Período: 02/05/2025 a 02/05/2026\n"
+        )
+    ]
+
+    header = parse_header(text_pages)
+
+    assert header.bank_name == "Inter"
+    assert header.account_holder == "LETICIA JOANNI MATTEDI"
+    assert header.agency == "0001-9"
+    assert header.account_number == "18866265-0"

@@ -298,3 +298,70 @@ def _word_rows(rows):
         for text, x0 in row:
             words.append({"text": text, "x0": x0, "x1": x0 + max(len(text) * 4, 4), "top": top})
     return words
+
+
+def test_parse_transactions_from_nubank_skips_total_out_headers_and_daily_balances():
+    text_pages = [
+        (
+            "THAINA SILVA ALVES DA COSTA\n"
+            "MovimentaÃ§Ãµes\n"
+            "21 DEZ 2025 Total de entradas + 300,00\n"
+            "TransferÃªncia recebida pelo Pix CLIENTE EXEMPLO 300,00\n"
+            "Saldo do dia 324,27\n"
+            "22 DEZ 2025 Total de saÃ­das - 81,90\n"
+            "Pagamento de boleto efetuado DAS-SIMPLES NACIONAL 81,90\n"
+            "Saldo do dia 242,37\n"
+        )
+    ]
+
+    result = parse_transactions_from_text(text_pages, "nubank.pdf")
+
+    assert not result["descricao"].str.contains("Total de sa", case=False, regex=False).any()
+    assert not result["descricao"].str.contains("Saldo do dia", case=False, regex=False).any()
+
+    boleto = result[result["descricao"].str.contains("DAS-SIMPLES", regex=False)].iloc[0]
+    assert boleto["data"].strftime("%Y-%m-%d") == "2025-12-22"
+    assert boleto["valor"] == -81.9
+    assert boleto["tipo_inferido"] == "debito"
+
+
+def test_parse_transactions_from_inter_daily_statement():
+    text_pages = [
+        (
+            "Solicitado em: 02/05/2026 - 15h01\n"
+            "LETICIA JOANNI MATTEDI 14553370727\n"
+            "CPF/CNPJ: 36.573.294/0001-98, Instituição: Banco Inter, Agência: 0001-9, Conta: 18866265-0\n"
+            "Período: 02/05/2025 a 02/05/2026\n"
+            "Saldo total Saldo disponível: Saldo bloqueado:\n"
+            "R$ 0,00 R$ 0,00 R$ 0,00\n"
+            "2 de Maio de 2025 Saldo do dia: R$ 0,06 Valor Saldo por transação\n"
+            "Pix enviado: \"Cp :16501555-RMS BAR E RESTAURANTE LTDA\" -R$ 15,00 -R$ 1,94\n"
+            "Pix recebido: \"Cp :18236120-Gabriel Pacheco de Almeida Santos\" R$ 2,00 R$ 0,06\n"
+            "Fale com a gente\n"
+            "SAC: 0800 940 9999\n"
+        ),
+        (
+            "Pix enviado: \"Cp :90400888-William Rafael Monteiro da Costa\" -R$ 60,85 -R$ 49,05\n"
+            "Resgate: \"CDB DI LIQ BANCO INTER SA\" R$ 60,00 R$ 10,95\n"
+            "10 de Maio de 2025 Saldo do dia: R$ 2,70\n"
+            "Pix enviado: \"Cp :18236120-Nelio Xavier Pinheiro Junior\" -R$ 958,00 -R$ 955,30\n"
+            "Resgate: \"CDB DI LIQ BANCO INTER SA\" R$ 958,00 R$ 2,70\n"
+        ),
+    ]
+
+    result = parse_transactions_from_text(text_pages, "inter.pdf")
+
+    assert len(result) == 6
+    received = result[result["descricao"].str.startswith('Pix recebido:')].iloc[0]
+    assert received["data"].strftime("%Y-%m-%d") == "2025-05-02"
+    assert received["valor"] == 2.0
+
+    debit = result[result["descricao"].str.contains("RMS BAR", regex=False)].iloc[0]
+    assert debit["valor"] == -15.0
+    assert debit["tipo_inferido"] == "debito"
+
+    continued = result[result["descricao"].str.contains("William Rafael", regex=False)].iloc[0]
+    assert continued["data"].strftime("%Y-%m-%d") == "2025-05-02"
+
+    resgate = result[result["descricao"].str.contains('Resgate:', regex=False)].iloc[0]
+    assert resgate["valor"] > 0

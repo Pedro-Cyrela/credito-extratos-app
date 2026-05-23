@@ -33,6 +33,11 @@ BRADESCO_ROW_PATTERN = re.compile(
     r"(?P<amount>-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+,\d{2})\s+"
     r"(?P<balance>-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+,\d{2})$"
 )
+NUBANK_DAY_SECTION_PATTERN = re.compile(
+    r"^(?P<day>\d{2})\s+(?P<month>[A-ZÃ‡]{3})\s+(?P<year>\d{4})\s+Total de\s+"
+    r"(?P<section>entradas|sa[iÃ­]das)\s+[+\-]\s*(?P<amount>.+)$",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
 NUBANK_DAY_PATTERN = re.compile(
     r"^(?P<day>\d{2})\s+(?P<month>[A-ZÇ]{3})\s+(?P<year>\d{4})\s+Total de entradas\s+\+\s*(?P<amount>.+)$",
     flags=re.IGNORECASE | re.MULTILINE,
@@ -80,6 +85,7 @@ NUBANK_SKIP_PATTERNS = [
     for pattern in [
         r"^Movimenta[cç][õo]es$",
         r"^Saldo inicial\b",
+        r"^Saldo do dia\b",
         r"^Saldo final do per[ií]odo\b",
         r"^Rendimento l[ií]quido\b",
         r"^Tem alguma d[uú]vida\?",
@@ -120,6 +126,24 @@ BB_MAIN_ROW_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 BB_DETAIL_ROW_PATTERN = re.compile(r"^\d{2}/\d{2}\s+\d{2}:\d{2}\b")
+INTER_DAY_HEADER_PATTERN = re.compile(
+    r"^(?P<day>\d{1,2})\s+de\s+(?P<month>[A-Za-zÀ-ÿçÇ]+)\s+de\s+(?P<year>\d{4})\s+Saldo do dia:\s+.+$",
+    flags=re.IGNORECASE,
+)
+INTER_MONTHS = {
+    "janeiro": 1,
+    "fevereiro": 2,
+    "marco": 3,
+    "abril": 4,
+    "maio": 5,
+    "junho": 6,
+    "julho": 7,
+    "agosto": 8,
+    "setembro": 9,
+    "outubro": 10,
+    "novembro": 11,
+    "dezembro": 12,
+}
 
 
 def _looks_like_banco_brasil_statement(text_pages: list[str]) -> bool:
@@ -238,6 +262,115 @@ def _parse_bb_transactions(text_pages: list[str], source_file: str) -> pd.DataFr
             # Append detail lines (e.g. "01/10 14:21 ...", or beneficiary lines)
             if BB_DETAIL_ROW_PATTERN.match(line) or any(ch.isalpha() for ch in line):
                 rows[last_index]["descricao"] = normalize_text(f"{rows[last_index]['descricao']} {line}")
+
+    if not rows:
+        return _empty_transactions_df()
+
+    result = pd.DataFrame(rows)
+    result["data"] = pd.to_datetime(result["data"], errors="coerce")
+    return result.sort_values(["data", "descricao"]).reset_index(drop=True)
+
+
+def _looks_like_inter_statement(text_pages: list[str]) -> bool:
+    sample = "\n".join(text_pages[:2])
+    folded = fold_text(sample)
+    return (
+        "instituicao: banco inter" in folded
+        and "saldo por transacao" in folded
+        and "saldo do dia:" in folded
+    )
+
+
+def _parse_inter_day_header(line: str) -> pd.Timestamp | None:
+    match = INTER_DAY_HEADER_PATTERN.match(line)
+    if not match:
+        return None
+
+    month = INTER_MONTHS.get(fold_text(match.group("month")))
+    if not month:
+        return None
+
+    try:
+        return pd.Timestamp(
+            year=int(match.group("year")),
+            month=month,
+            day=int(match.group("day")),
+        ).normalize()
+    except ValueError:
+        return None
+
+
+def _is_inter_noise_line(line: str) -> bool:
+    folded = fold_text(line)
+    return (
+        not folded
+        or folded.startswith("solicitado em:")
+        or folded.startswith("cpf/cnpj:")
+        or folded.startswith("periodo:")
+        or folded.startswith("saldo total ")
+        or folded.startswith("r$ ")
+        or folded.startswith("(bloqueado + disponivel)")
+        or folded == "valor saldo por transacao"
+        or folded == "fale com a gente"
+        or folded.startswith("sac:")
+        or folded.startswith("ouvidoria:")
+        or folded.startswith("deficiencia de fala")
+    )
+
+
+def _parse_inter_transaction_line(
+    line: str,
+    current_date: pd.Timestamp,
+    source_file: str,
+) -> dict | None:
+    amount_matches = extract_amount_matches(line)
+    if len(amount_matches) < 2:
+        return None
+
+    amount_match = amount_matches[-2]
+    desc = normalize_text(line[: amount_match.start]).strip()
+    if not desc:
+        return None
+
+    amount = float(amount_match.value)
+    detected_as_credit = amount_match.explicit_credit or (amount > 0 and not amount_match.explicit_debit)
+    detected_as_debit = amount_match.explicit_debit or amount < 0
+
+    return _build_record(
+        dt=current_date,
+        desc=desc,
+        amount=amount,
+        raw_amount_text=amount_match.text,
+        detected_as_credit=detected_as_credit,
+        detected_as_debit=detected_as_debit,
+        source_file=source_file,
+    )
+
+
+def _parse_inter_transactions(text_pages: list[str], source_file: str) -> pd.DataFrame:
+    if not _looks_like_inter_statement(text_pages):
+        return _empty_transactions_df()
+
+    current_date: pd.Timestamp | None = None
+    rows: list[dict] = []
+
+    for page_text in text_pages:
+        for raw_line in page_text.splitlines():
+            line = normalize_text(raw_line)
+            if not line or _is_inter_noise_line(line):
+                continue
+
+            day_header = _parse_inter_day_header(line)
+            if day_header is not None:
+                current_date = day_header
+                continue
+
+            if current_date is None:
+                continue
+
+            record = _parse_inter_transaction_line(line, current_date, source_file)
+            if record:
+                rows.append(record)
 
     if not rows:
         return _empty_transactions_df()
@@ -1275,6 +1408,31 @@ def _parse_nubank_day(line: str) -> pd.Timestamp | None:
     ).normalize()
 
 
+def _parse_nubank_day_section(line: str) -> tuple[pd.Timestamp, str] | None:
+    folded_line = fold_text(line)
+    match = re.match(
+        r"^(?P<day>\d{2})\s+(?P<month>[A-Z]{3})\s+(?P<year>\d{4})\s+total de\s+"
+        r"(?P<section>entradas|sa\S*das)\s+[+\-]\s*(?P<amount>.+)$",
+        folded_line,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    month_key = normalize_text(match.group("month")).upper()
+    month = PT_MONTHS.get(month_key)
+    if not month:
+        return None
+
+    current_date = pd.Timestamp(
+        year=int(match.group("year")),
+        month=month,
+        day=int(match.group("day")),
+    ).normalize()
+    section = "entradas" if "entrada" in fold_text(match.group("section")) else "saidas"
+    return current_date, section
+
+
 def _parse_nubank_standalone_day(line: str) -> pd.Timestamp | None:
     match = NUBANK_STANDALONE_DAY_PATTERN.match(line)
     if not match:
@@ -1365,6 +1523,12 @@ def _parse_nubank_transactions(text_pages: list[str], source_file: str) -> pd.Da
             if not line or _is_nubank_skip_line(line):
                 continue
 
+            day_section = _parse_nubank_day_section(line)
+            if day_section is not None:
+                current_date, current_section = day_section
+                pending_day = None
+                continue
+
             day_date = _parse_nubank_day(line)
             if day_date is not None:
                 current_date = day_date
@@ -1430,6 +1594,14 @@ def parse_transactions_from_text(
     if not eagle_df.empty:
         return eagle_df
 
+    inter_df = _parse_inter_transactions(text_pages, source_file)
+    if not inter_df.empty:
+        return inter_df
+
+    nubank_df = _parse_nubank_transactions(text_pages, source_file)
+    if not nubank_df.empty:
+        return nubank_df
+
     c6_df = _parse_c6_transactions(text_pages, source_file)
     if not c6_df.empty:
         return c6_df
@@ -1451,10 +1623,6 @@ def parse_transactions_from_text(
         generic_df = pd.DataFrame(generic_rows)
         generic_df["data"] = pd.to_datetime(generic_df["data"], errors="coerce")
         frames.append(generic_df)
-
-    nubank_df = _parse_nubank_transactions(text_pages, source_file)
-    if not nubank_df.empty:
-        frames.append(nubank_df)
 
     if not frames:
         return _empty_transactions_df()

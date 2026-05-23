@@ -3,4 +3,5 @@ __pycache__/
 .venv/
 .env
 .streamlit/secrets.toml
+.streamlit/credentials.toml
 *.xlsx
