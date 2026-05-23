@@ -15,8 +15,21 @@ class PDFDocument:
     word_pages: list[list[dict[str, Any]]]
 
 
+def _read_uploaded_bytes(uploaded_file) -> bytes:
+    if hasattr(uploaded_file, "getvalue"):
+        data = uploaded_file.getvalue()
+        if isinstance(data, bytes):
+            return data
+
+    if hasattr(uploaded_file, "seek"):
+        uploaded_file.seek(0)
+
+    data = uploaded_file.read()
+    return data if isinstance(data, bytes) else bytes(data)
+
+
 def read_pdf(uploaded_file) -> PDFDocument:
-    file_bytes = uploaded_file.read()
+    file_bytes = _read_uploaded_bytes(uploaded_file)
     text_pages: list[str] = []
     tables: list[list[list[str | None]]] = []
     word_pages: list[list[dict[str, Any]]] = []

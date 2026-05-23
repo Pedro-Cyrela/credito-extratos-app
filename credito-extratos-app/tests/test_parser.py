@@ -208,6 +208,41 @@ def test_detect_foreign_statement_does_not_identify_currency():
     assert detect_foreign_statement(text_pages) is True
 
 
+def test_parse_transactions_from_wise_usd_statement_layout():
+    text_pages = [
+        (
+            "Wise Payments Ltd.\n"
+            "Extrato em USD\n"
+            "DescriÃ§Ã£o Entrada SaÃ­da Valor\n"
+            "Recebeu dinheiro de KNWN LOCAL LLC com a referÃªncia 1.100,00 1.100,00\n"
+            "\"091311220026380\"\n"
+            "6 de abril de 2026 TransaÃ§Ã£o: TRANSFER-2062411891 ReferÃªncia: 091311220026380\n"
+            "20,00 USD movimentados para Visto USA -20,00 1.080,00\n"
+            "6 de abril de 2026 TransaÃ§Ã£o: BALANCE-5073804866\n"
+            "TransaÃ§Ã£o por cartÃ£o de 5,00 USD emitida por Anthropic ANTHROPIC.COM -5,00 169,32\n"
+            "13 de maio de 2026 CartÃ£o terminado em 2307 Pedro Lucas da Silva Leite TransaÃ§Ã£o: CARD-3787345278\n"
+        )
+    ]
+
+    result = parse_transactions_from_text(text_pages, "wise.pdf")
+
+    assert len(result) == 3
+    assert detect_foreign_statement(text_pages) is True
+
+    deposit = result[result["descricao"].str.contains("KNWN LOCAL LLC", regex=False)].iloc[0]
+    assert deposit["data"].strftime("%Y-%m-%d") == "2026-04-06"
+    assert deposit["valor"] == 1100.0
+    assert deposit["tipo_inferido"] == "credito"
+    assert "091311220026380" in deposit["descricao"]
+
+    transfer = result[result["descricao"].str.contains("Visto USA", regex=False)].iloc[0]
+    assert transfer["valor"] == -20.0
+    assert transfer["tipo_inferido"] == "debito"
+
+    card = result[result["descricao"].str.contains("Anthropic", regex=False)].iloc[0]
+    assert card["valor"] == -5.0
+
+
 def test_parse_bradesco_word_layout_uses_physical_credit_debit_columns():
     text_pages = [
         (
