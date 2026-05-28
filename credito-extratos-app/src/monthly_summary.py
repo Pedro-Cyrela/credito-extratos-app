@@ -25,9 +25,9 @@ def build_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
             {
                 "mes_ref": mes,
                 "total_considerado": round(float(considered["valor"].sum()), 2),
-                "qtd_creditos_considerados": int(len(considered)),
+                "qtd_creditos_considerados": len(considered),
                 "total_desconsiderado": round(float(disregarded["valor"].abs().sum()), 2),
-                "qtd_revisao": int(len(review)),
+                "qtd_revisao": len(review),
             }
         )
 
@@ -47,7 +47,7 @@ def calculate_global_metrics(summary_df: pd.DataFrame) -> dict[str, float]:
         }
 
     total_considerado = float(summary_df["total_considerado"].sum())
-    meses = int(len(summary_df))
+    meses = len(summary_df)
     media = total_considerado / meses if meses else 0.0
     qtd_creditos = int(summary_df["qtd_creditos_considerados"].sum())
 

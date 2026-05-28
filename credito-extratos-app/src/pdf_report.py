@@ -5,6 +5,7 @@ from datetime import datetime
 import pandas as pd
 from unidecode import unidecode
 
+from . import get_version_label
 from .fx_ptax import FxQuote
 
 
@@ -93,6 +94,8 @@ def build_pdf_report(
             self.set_y(-14)
             self.set_font("Helvetica", "", 8)
             self.set_text_color(120, 120, 120)
+            self.cell(0, 8, _pdf_text(get_version_label()), align="L")
+            self.set_y(-14)
             self.cell(0, 8, f"Página {self.page_no()}", align="R")
             self.set_text_color(0, 0, 0)
 
@@ -199,7 +202,6 @@ def build_pdf_report(
     total = float(metrics.get("total_considerado") or 0)
     qtd = int(metrics.get("qtd_creditos") or 0)
 
-    months_line = ", ".join(months_unique) if months_unique else ""
     months_count = len(months_unique) if months_unique else meses
     if months_unique:
         month_lines = wrap_items(months_unique, max_width=full_w - 6)

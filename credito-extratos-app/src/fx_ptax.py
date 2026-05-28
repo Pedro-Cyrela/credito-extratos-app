@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote
 from urllib.request import urlopen
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -48,16 +51,19 @@ def fetch_ptax_sell_quote(currency_code: str, quote_date: date, timeout_seconds:
     try:
         with urlopen(url, timeout=timeout_seconds) as response:
             payload = response.read().decode("utf-8", errors="replace")
-    except URLError:
+    except URLError as exc:
+        logger.warning("PTAX indisponivel para %s em %s: %s", currency_code, quote_date, exc)
         return None
 
     try:
         data = json.loads(payload)
     except json.JSONDecodeError:
+        logger.warning("PTAX retornou payload invalido para %s em %s", currency_code, quote_date)
         return None
 
     values = data.get("value") or []
     if not values:
+        logger.debug("PTAX sem cotacao para %s em %s", currency_code, quote_date)
         return None
 
     item = values[0] or {}
@@ -71,6 +77,7 @@ def fetch_ptax_sell_quote(currency_code: str, quote_date: date, timeout_seconds:
     except ValueError:
         quote_dt = datetime.now()
 
+    logger.info("PTAX obtida: %s em %s = %s BRL/unit", currency_code, quote_date, rate)
     return FxQuote(
         currency=currency_code,
         rate_brl_per_unit=rate,

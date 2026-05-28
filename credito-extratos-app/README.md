@@ -16,8 +16,23 @@ Aplicacao Streamlit para analise de renda/credito a partir de extratos bancarios
 
 ### 1. Instale as dependencias
 
+Para uso em producao (versoes travadas com hashes):
+
+```bash
+pip install --require-hashes -r requirements-lock.txt
+```
+
+Para desenvolvimento (versoes minimas, sem hash):
+
 ```bash
 pip install -r requirements.txt
+```
+
+Para regenerar o lock apos atualizar `pyproject.toml`:
+
+```bash
+pip install pip-tools
+pip-compile --generate-hashes -o requirements-lock.txt pyproject.toml
 ```
 
 ### 2. Rode o app
@@ -62,6 +77,27 @@ credito-extratos-app/
 |-- src/
 `-- tests/
 ```
+
+## Build standalone (distribuir sem Python instalado)
+
+Para gerar um pacote `.zip` que rode em qualquer maquina Windows sem
+Python pre-instalado:
+
+```powershell
+.\packaging\build_standalone.ps1
+```
+
+O script:
+
+1. baixa Python 3.11 embeddable do python.org (cache em `dist\_cache\`);
+2. instala todas as dependencias do `requirements.txt` dentro do embed;
+3. copia `app.py`, `src\`, `config\`, `.streamlit\` para a pasta de build;
+4. gera `dist\Analise_Extratos_v<versao>.zip`.
+
+Distribuicao: o analista descompacta o ZIP e clica em `Executar.bat`.
+Veja `packaging\LEIA-ME.txt` para o guia que vai dentro do ZIP.
+
+Tamanho aproximado: ~80 MB compactado, ~250 MB descompactado.
 
 ## Observacoes
 

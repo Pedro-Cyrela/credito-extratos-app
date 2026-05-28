@@ -8,7 +8,6 @@ import pandas as pd
 
 from .utils import expand_name_tokens, fold_text, normalize_text
 
-
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "exclusion_terms_default.json"
 DEFAULT_TERMS = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))["default_terms"]
 

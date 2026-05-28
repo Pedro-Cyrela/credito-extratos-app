@@ -12,6 +12,7 @@ def build_excel_export(
     disregarded_df: pd.DataFrame,
     review_df: pd.DataFrame,
     metadata_df: pd.DataFrame,
+    errors_df: pd.DataFrame | None = None,
 ) -> bytes:
     sheets = {
         "Resumo_Mensal": summary_df,
@@ -21,4 +22,6 @@ def build_excel_export(
         "Analise_Completa": full_df,
         "Cabecalho": metadata_df,
     }
+    if errors_df is not None and not errors_df.empty:
+        sheets["Erros"] = errors_df
     return to_excel_bytes(sheets)

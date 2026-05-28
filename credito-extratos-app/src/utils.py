@@ -4,11 +4,9 @@ import io
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Optional
 
 import pandas as pd
 from unidecode import unidecode
-
 
 DATE_PATTERNS = [
     r"\b\d{2}/\d{2}/\d{4}\b",
@@ -112,7 +110,7 @@ def extract_amount_matches(value: object) -> list[AmountMatch]:
     return matches
 
 
-def parse_brl_number(value: object) -> Optional[float]:
+def parse_brl_number(value: object) -> float | None:
     matches = extract_amount_matches(value)
     if matches:
         return matches[0].value
@@ -138,7 +136,7 @@ def parse_brl_number(value: object) -> Optional[float]:
         return None
 
 
-def parse_date(value: object) -> Optional[pd.Timestamp]:
+def parse_date(value: object) -> pd.Timestamp | None:
     if value is None:
         return None
 
@@ -174,7 +172,7 @@ def parse_date(value: object) -> Optional[pd.Timestamp]:
     return None
 
 
-def find_first_date(text: str) -> Optional[str]:
+def find_first_date(text: str) -> str | None:
     for pattern in DATE_PATTERNS:
         match = re.search(pattern, text)
         if match:

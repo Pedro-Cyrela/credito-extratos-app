@@ -1,13 +1,25 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
 import html
+import logging
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import streamlit as st
 
+from src.logging_config import configure_logging
+
+configure_logging()
+logger = logging.getLogger(__name__)
+
+from src import get_version_label
 from src.analysis_engine import analyze_uploaded_files
 from src.export_excel import build_excel_export
+from src.fx_processing import (
+    apply_fx_to_transactions,
+    build_monthly_summary_with_brl,
+    stamp_fx_on_headers,
+)
 from src.fx_ptax import FxQuote, fetch_ptax_sell_quote
 from src.manual_overrides import (
     apply_manual_overrides,
@@ -15,10 +27,12 @@ from src.manual_overrides import (
     normalize_manual_overrides,
     reconcile_manual_overrides,
 )
-from src.monthly_summary import build_monthly_summary, calculate_global_metrics
+from src.monthly_summary import calculate_global_metrics
 from src.utils import split_user_terms
+
 try:
     from fpdf import FPDF  # noqa: F401
+
     from src.pdf_report import build_pdf_report
 
     PDF_REPORT_AVAILABLE = True
@@ -251,7 +265,9 @@ st.markdown(
         </div>
       </div>
       <div class="ce-topbar-right">
-        <div class="ce-chip"><span class="ce-dot"></span> Pronto</div>
+        <div class="ce-chip"><span class="ce-dot"></span> Pronto · """
+    + html.escape(get_version_label())
+    + """</div>
       </div>
     </div>
     """,
@@ -343,7 +359,7 @@ def calculate_brl_metrics_from_summary(summary_df: pd.DataFrame) -> dict[str, fl
         }
 
     total_considerado = float(pd.to_numeric(summary_df["total_considerado_brl"], errors="coerce").fillna(0).sum())
-    meses = int(len(summary_df))
+    meses = len(summary_df)
     media = total_considerado / meses if meses else 0.0
     qtd_creditos = int(pd.to_numeric(summary_df["qtd_creditos_considerados"], errors="coerce").fillna(0).sum())
 
@@ -648,6 +664,31 @@ with st.sidebar:
 
     process = st.button("Processar análise", type="primary", use_container_width=True)
 
+    st.divider()
+    st.caption("LGPD - Dados ficam apenas na memoria desta sessao. Veja SECURITY.md.")
+    if st.button(
+        "Encerrar analise e limpar sessao",
+        use_container_width=True,
+        help="Remove todas as transacoes, overrides e PDFs derivados da memoria do Streamlit.",
+    ):
+        keys_to_clear = [
+            "analysis_result",
+            "manual_overrides",
+            "base_transactions",
+            "pdf_bytes",
+            "foreign_statement_choice",
+            "foreign_currency",
+            "custom_names_list",
+            "custom_terms_list",
+            "considered_editor",
+            "disregarded_editor",
+        ]
+        for key in keys_to_clear:
+            st.session_state.pop(key, None)
+        logger.info("Sessao limpa pelo analista (Encerrar analise)")
+        st.success("Sessao limpa. Recarregue ou envie novos PDFs.")
+        st.rerun()
+
 if process:
     if not uploaded_files:
         st.warning("Envie ao menos um PDF para processar.")
@@ -683,6 +724,15 @@ if result:
     st.session_state["base_transactions"] = base_transactions
     transactions_df = apply_manual_overrides(base_transactions, st.session_state.get("manual_overrides", {}))
 
+    errors_df = result.get("errors", pd.DataFrame())
+    if isinstance(errors_df, pd.DataFrame) and not errors_df.empty:
+        st.warning(
+            f"{len(errors_df['arquivo'].unique())} arquivo(s) com falha no processamento. "
+            "Veja detalhes abaixo — a análise seguiu com os demais."
+        )
+        with st.expander(f"Erros de processamento ({len(errors_df)})", expanded=False):
+            st.dataframe(errors_df, use_container_width=True, hide_index=True)
+
     render_section_header("Cabeçalho dos extratos", subtitle="Dados detectados no PDF (banco, titular, conta, período).")
     render_header_cards(headers_df)
 
@@ -709,18 +759,15 @@ if result:
         st.stop()
 
     headers_for_export = headers_df.copy()
+    headers_for_export["versao_app"] = result.get("app_version", "")
+    headers_for_export["analise_executada_em"] = result.get("analysis_timestamp", "")
     headers_for_export["extrato_estrangeiro_confirmado"] = "Sim" if is_foreign_statement else "Nao"
+
     if is_foreign_statement:
-        headers_for_export["moeda_selecionada"] = selected_currency
-        transactions_df = transactions_df.copy()
-        transactions_df["moeda_extrato"] = display_currency
-        if fx_quote:
-            transactions_df["cotacao_ptax_venda"] = float(fx_quote.rate_brl_per_unit)
-            transactions_df["data_cotacao_ptax"] = fx_quote.requested_date.strftime("%d/%m/%Y")
-            valor_numeric = pd.to_numeric(transactions_df["valor"], errors="coerce")
-            transactions_df["valor_brl"] = (valor_numeric * float(fx_quote.rate_brl_per_unit)).round(2)
-            headers_for_export["cotacao_ptax_venda"] = float(fx_quote.rate_brl_per_unit)
-            headers_for_export["data_cotacao_ptax"] = fx_quote.requested_date.strftime("%d/%m/%Y")
+        transactions_df = apply_fx_to_transactions(transactions_df, display_currency, fx_quote)
+        headers_for_export = stamp_fx_on_headers(
+            headers_for_export, display_currency, fx_quote, selected_currency
+        )
 
         if fx_quote:
             st.caption(
@@ -730,24 +777,9 @@ if result:
                 )
             )
         else:
-            st.caption("Valores em {} (sem conversao automatica para BRL).".format(display_currency))
+            st.caption(f"Valores em {display_currency} (sem conversao automatica para BRL).")
 
-    recalculated_summary = build_monthly_summary(transactions_df)
-    if fx_quote and "valor_brl" in transactions_df.columns:
-        brl_base = transactions_df.copy()
-        brl_base["valor"] = pd.to_numeric(brl_base["valor_brl"], errors="coerce").fillna(0)
-        brl_summary = build_monthly_summary(brl_base)
-        brl_summary = brl_summary.rename(
-            columns={
-                "total_considerado": "total_considerado_brl",
-                "total_desconsiderado": "total_desconsiderado_brl",
-            }
-        )
-        brl_summary = brl_summary.drop(
-            columns=[c for c in ["qtd_creditos_considerados", "qtd_revisao"] if c in brl_summary.columns],
-            errors="ignore",
-        )
-        recalculated_summary = recalculated_summary.merge(brl_summary, on="mes_ref", how="left")
+    recalculated_summary = build_monthly_summary_with_brl(transactions_df, fx_quote)
 
     if not recalculated_summary.empty:
         default_months = recalculated_summary["mes_ref"].tolist()
@@ -916,6 +948,7 @@ if result:
         },
     )
 
+    errors_df = result.get("errors", pd.DataFrame())
     export_bytes = build_excel_export(
         full_df=filtered_transactions.drop(columns=["transaction_key"], errors="ignore"),
         summary_df=filtered_summary,
@@ -923,6 +956,7 @@ if result:
         disregarded_df=disregarded_view.drop(columns=["transaction_key"], errors="ignore"),
         review_df=review_view.drop(columns=["transaction_key"], errors="ignore"),
         metadata_df=headers_for_export,
+        errors_df=errors_df,
     )
 
     filename = f"analise_credito_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"

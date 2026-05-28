@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import io
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import pdfplumber
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -42,6 +45,13 @@ def read_pdf(uploaded_file) -> PDFDocument:
             for table in extracted_tables:
                 if table:
                     tables.append(table)
+
+    logger.info(
+        "PDF lido: %s | paginas=%d | tabelas=%d",
+        uploaded_file.name,
+        len(text_pages),
+        len(tables),
+    )
 
     return PDFDocument(
         filename=uploaded_file.name,

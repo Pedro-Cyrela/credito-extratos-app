@@ -5,3 +5,7 @@ __pycache__/
 .streamlit/secrets.toml
 .streamlit/credentials.toml
 *.xlsx
+
+# Standalone build artifacts (gerados por packaging/build_standalone.ps1)
+dist/
+*.zip

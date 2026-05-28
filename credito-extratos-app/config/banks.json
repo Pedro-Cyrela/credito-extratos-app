@@ -1,0 +1,85 @@
+{
+  "banks": [
+    {
+      "key": "bank_of_america",
+      "display": "Bank of America",
+      "aliases": ["bank of america", "bofa"]
+    },
+    {
+      "key": "itau",
+      "display": "Itaú",
+      "aliases": ["itau", "itaú", "itau unibanco", "itaú unibanco"]
+    },
+    {
+      "key": "bradesco",
+      "display": "Bradesco",
+      "aliases": ["bradesco"]
+    },
+    {
+      "key": "santander",
+      "display": "Santander",
+      "aliases": ["santander"]
+    },
+    {
+      "key": "caixa",
+      "display": "Caixa Econômica Federal",
+      "aliases": ["caixa", "caixa economica", "caixa econômica", "cef"]
+    },
+    {
+      "key": "banco_do_brasil",
+      "display": "Banco do Brasil",
+      "aliases": ["banco do brasil", "bb"]
+    },
+    {
+      "key": "nubank",
+      "display": "Nubank",
+      "aliases": ["nubank", "nu pagamentos"]
+    },
+    {
+      "key": "inter",
+      "display": "Inter",
+      "aliases": ["banco inter", "inter"]
+    },
+    {
+      "key": "sicredi",
+      "display": "Sicredi",
+      "aliases": ["sicredi"]
+    },
+    {
+      "key": "sicoob",
+      "display": "Sicoob",
+      "aliases": ["sicoob"]
+    },
+    {
+      "key": "picpay",
+      "display": "PicPay",
+      "aliases": ["picpay"]
+    },
+    {
+      "key": "mercado_pago",
+      "display": "Mercado Pago",
+      "aliases": ["mercado pago"]
+    },
+    {
+      "key": "c6",
+      "display": "C6 Bank",
+      "aliases": ["c6 bank", "c6"]
+    },
+    {
+      "key": "btg",
+      "display": "BTG Pactual",
+      "aliases": ["btg pactual", "btg"]
+    },
+    {
+      "key": "original",
+      "display": "Banco Original",
+      "aliases": ["original"]
+    },
+    {
+      "key": "wise",
+      "display": "Wise",
+      "aliases": ["wise payments ltd.", "wise"],
+      "foreign": true
+    }
+  ]
+}

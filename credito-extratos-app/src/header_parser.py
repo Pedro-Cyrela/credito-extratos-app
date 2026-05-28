@@ -1,9 +1,46 @@
 from __future__ import annotations
 
+import json
+import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from .utils import fold_text, normalize_text
+
+logger = logging.getLogger(__name__)
+
+
+_BANKS_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "banks.json"
+
+
+def _load_banks_catalog() -> tuple[list[str], dict[str, str]]:
+    """Load banks.json once into (aliases_in_priority_order, alias_to_display).
+
+    Aliases are folded (accent-less, lowercased) so matching against PDF text
+    is consistent regardless of how the bank name appears in the document.
+    Aliases are sorted by length descending so longer aliases ("banco do
+    brasil") win over shorter prefixes ("bb").
+    """
+    try:
+        payload = json.loads(_BANKS_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("Falha ao carregar %s; caindo no fallback hardcoded", _BANKS_CONFIG_PATH)
+        return [], {}
+
+    aliases: list[tuple[str, str]] = []
+    for entry in payload.get("banks", []):
+        display = entry.get("display", "")
+        for alias in entry.get("aliases", []):
+            folded = fold_text(alias)
+            if folded:
+                aliases.append((folded, display))
+
+    aliases.sort(key=lambda pair: -len(pair[0]))
+    return [a for a, _ in aliases], {a: d for a, d in aliases}
+
+
+_BANK_ALIASES_ORDERED, _BANK_DISPLAY_BY_ALIAS = _load_banks_catalog()
 
 
 @dataclass
@@ -15,31 +52,9 @@ class HeaderInfo:
     statement_period: str = ""
 
 
-BANK_PATTERNS = [
-    "bank of america",
-    "itau",
-    "bradesco",
-    "santander",
-    "caixa",
-    "banco do brasil",
-    "nubank",
-    "inter",
-    "sicredi",
-    "sicoob",
-    "picpay",
-    "mercado pago",
-    "c6",
-    "btg",
-    "original",
-]
-BANK_DISPLAY_NAMES = {
-    "bank of america": "Bank of America",
-    "bradesco": "Bradesco",
-    "c6": "C6 Bank",
-    "nubank": "Nubank",
-    "banco do brasil": "Banco do Brasil",
-    "itau": "Itaú",
-}
+# Kept as a thin shim around the catalog for any external callers.
+BANK_PATTERNS = list(_BANK_ALIASES_ORDERED)
+BANK_DISPLAY_NAMES = dict(_BANK_DISPLAY_BY_ALIAS)
 CPF_PATTERN = r"\d{3}\.\d{3}\.\d{3}-\d{2}"
 CNPJ_PATTERN = r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}"
 DOCUMENT_PATTERN = rf"(?:{CPF_PATTERN}|{CNPJ_PATTERN})"
@@ -72,7 +87,6 @@ def parse_header(text_pages: list[str]) -> HeaderInfo:
 
 
 def _detect_bank(header_text: str, first_page: str) -> str:
-    first_page_lower = first_page.lower()
     folded_header = fold_text(header_text)
 
     if "bradesco celular" in folded_header:
@@ -116,18 +130,21 @@ def _detect_bank(header_text: str, first_page: str) -> str:
     if itau_markers:
         return "Itaú"
 
-    for bank in BANK_PATTERNS:
-        if bank in {"inter", "c6", "btg"}:
+    folded_first_page = fold_text(first_page)
+    short_codes_requiring_context = {"inter", "c6", "btg", "bb"}
+
+    for alias in _BANK_ALIASES_ORDERED:
+        if alias in short_codes_requiring_context:
             continue
-        if bank in first_page_lower:
-            return BANK_DISPLAY_NAMES.get(bank, bank.title())
+        if alias in folded_first_page:
+            return _BANK_DISPLAY_BY_ALIAS.get(alias, alias.title())
 
     if re.search(r"\bc6\s+bank\b", folded_header):
-        return "C6 Bank"
+        return _BANK_DISPLAY_BY_ALIAS.get("c6", "C6 Bank")
     if re.search(r"\bbanco\s+inter\b", folded_header):
-        return "Inter"
+        return _BANK_DISPLAY_BY_ALIAS.get("banco inter", "Inter")
     if re.search(r"\bbtg\b", folded_header) and "btg pactual" in folded_header:
-        return "BTG"
+        return _BANK_DISPLAY_BY_ALIAS.get("btg pactual", "BTG Pactual")
     return ""
 
 
