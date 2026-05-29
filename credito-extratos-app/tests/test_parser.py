@@ -400,3 +400,87 @@ def test_parse_transactions_from_inter_daily_statement():
 
     resgate = result[result["descricao"].str.contains('Resgate:', regex=False)].iloc[0]
     assert resgate["valor"] > 0
+
+
+def test_parse_santander_updates_month_and_keeps_post_value_details_on_previous_transaction():
+    text_pages = [
+        (
+            "EXTRATO CONSOLIDADO INTELIGENTE\n"
+            "janeiro/2026\n"
+            "Movimentação\n"
+            "02/01 PAGAMENTO DE BOLETO OUTROS BANCOS - 2.125,28-\n"
+            "BRADESCO SEGUROS - SEGURO\n"
+            "PIX RECEBIDO - 50.000,00\n"
+            "LEANDRO BRICIO DA FONTE L\n"
+        ),
+        (
+            "EXTRATO CONSOLIDADO INTELIGENTE\n"
+            "fevereiro/2026\n"
+            "Movimentação\n"
+            "01/02 PIX ENVIADO - 1.000,00-\n"
+            "Simone Abreu de Freitas\n"
+            "PIX RECEBIDO - 39.000,00\n"
+            "LEANDRO BRICIO DA FONTE L\n"
+            "03/02 PIX ENVIADO - 5.000,00-\n"
+            "Guilherme Scucuglia Bento\n"
+        ),
+    ]
+
+    result = parse_transactions_from_text(text_pages, "santander.pdf")
+
+    boleto = result[result["descricao"].str.contains("BRADESCO SEGUROS", regex=False)].iloc[0]
+    assert boleto["data"].strftime("%Y-%m-%d") == "2026-01-02"
+    assert boleto["valor"] == -2125.28
+
+    janeiro_credito = result[result["valor"] == 50000.0].iloc[0]
+    assert janeiro_credito["data"].strftime("%Y-%m-%d") == "2026-01-02"
+    assert "BRADESCO SEGUROS" not in janeiro_credito["descricao"]
+    assert "LEANDRO BRICIO DA FONTE L" in janeiro_credito["descricao"]
+
+    fevereiro_credito = result[result["valor"] == 39000.0].iloc[0]
+    assert fevereiro_credito["data"].strftime("%Y-%m-%d") == "2026-02-01"
+    assert fevereiro_credito["mes_ref"] == "02/2026"
+    assert "Simone Abreu de Freitas" not in fevereiro_credito["descricao"]
+
+
+def test_parse_santander_date_without_amount_is_detail_not_next_transaction_prefix():
+    text_pages = [
+        (
+            "EXTRATO CONSOLIDADO INTELIGENTE\n"
+            "janeiro/2026\n"
+            "Movimentação\n"
+            "09/01 PAGAMENTO CARTAO CREDITO BCE 114308 39.544,47-\n"
+            "09/01 11:43 CARTAO MASTER\n"
+            "PAGAMENTO CARTAO CREDITO BCE 114349 25.973,55-\n"
+            "09/01 11:43 CARTAO VISA\n"
+        )
+    ]
+
+    result = parse_transactions_from_text(text_pages, "santander.pdf")
+
+    assert len(result) == 2
+    first = result[result["valor"] == -39544.47].iloc[0]
+    second = result[result["valor"] == -25973.55].iloc[0]
+    assert "CARTAO MASTER" in first["descricao"]
+    assert "CARTAO MASTER" not in second["descricao"]
+    assert "CARTAO VISA" in second["descricao"]
+
+
+def test_parse_santander_cdb_transaction_does_not_end_movement_section():
+    text_pages = [
+        (
+            "EXTRATO CONSOLIDADO INTELIGENTE\n"
+            "janeiro/2026\n"
+            "Movimentação\n"
+            "09/01 RESGATE CDB/RDB - 30.000,00\n"
+            "PAGAMENTO DE BOLETO - 1.033,00-\n"
+            "CLAUDIO MORAIS ADMINISTRA\n"
+        )
+    ]
+
+    result = parse_transactions_from_text(text_pages, "santander.pdf")
+
+    assert len(result) == 2
+    assert (result["descricao"] == "RESGATE CDB/RDB -").any()
+    boleto = result[result["descricao"].str.contains("CLAUDIO MORAIS", regex=False)].iloc[0]
+    assert boleto["valor"] == -1033.0
