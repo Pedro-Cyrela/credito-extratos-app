@@ -1,0 +1,1 @@
+-r credito-extratos-app/requirements.txt
