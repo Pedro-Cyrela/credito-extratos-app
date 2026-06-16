@@ -635,6 +635,10 @@ if "custom_names_list" not in st.session_state:
     st.session_state["custom_names_list"] = []
 if "custom_terms_list" not in st.session_state:
     st.session_state["custom_terms_list"] = []
+if "flexible_names" not in st.session_state:
+    st.session_state["flexible_names"] = True
+if "include_holder_in_exclusions" not in st.session_state:
+    st.session_state["include_holder_in_exclusions"] = True
 
 ocr_candidate_stats: list[PDFContentStats] = []
 
@@ -691,13 +695,13 @@ with st.sidebar:
 
     flexible_names = st.toggle(
         "Aplicar nomes com correspondência flexível",
-        value=True,
+        key="flexible_names",
         help="Quando ativo, o motor usa tokens do nome, como primeiro nome e combinações parciais, inclusive cortes comuns do primeiro nome.",
     )
 
     include_holder_in_exclusions = st.toggle(
         "Desconsiderar automaticamente o nome do titular detectado",
-        value=False,
+        key="include_holder_in_exclusions",
         help="Quando ativo, o app adiciona o nome do titular detectado no PDF como regra de desconsideração.",
     )
 
@@ -719,6 +723,8 @@ with st.sidebar:
             "foreign_currency",
             "custom_names_list",
             "custom_terms_list",
+            "flexible_names",
+            "include_holder_in_exclusions",
             "considered_editor",
             "disregarded_editor",
         ]
