@@ -51,9 +51,14 @@ def _load_numpy():
 def _get_ocr_engine():
     try:
         from rapidocr_onnxruntime import RapidOCR  # type: ignore[import-not-found]
-    except ImportError as exc:
+    except ModuleNotFoundError as exc:
         raise OCRUnavailableError(
             "rapidocr-onnxruntime nao esta instalado. Instale `rapidocr-onnxruntime` para habilitar OCR."
+        ) from exc
+    except ImportError as exc:
+        raise OCRUnavailableError(
+            "rapidocr-onnxruntime foi instalado, mas falhou ao importar uma dependencia nativa. "
+            f"Detalhe original: {exc}"
         ) from exc
     return RapidOCR()
 
