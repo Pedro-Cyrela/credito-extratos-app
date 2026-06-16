@@ -104,4 +104,4 @@ Tamanho aproximado: ~80 MB compactado, ~250 MB descompactado.
 - Nao ha dependencia de Streamlit Community Cloud para executar o app.
 - Nao e necessario publicar em GitHub para uso local.
 - O motor funciona melhor com PDFs pesquisaveis/tabulares.
-- PDFs totalmente escaneados ainda podem exigir OCR em evolucao futura.
+- PDFs sem tabela/texto selecionavel acionam OCR como ultima opcao; revise os valores extraidos porque OCR pode confundir caracteres.

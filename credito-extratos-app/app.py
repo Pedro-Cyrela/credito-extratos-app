@@ -28,6 +28,7 @@ from src.manual_overrides import (
     reconcile_manual_overrides,
 )
 from src.monthly_summary import calculate_global_metrics
+from src.pdf_reader import PDFContentStats, inspect_pdf_bytes
 from src.utils import split_user_terms
 
 try:
@@ -467,6 +468,12 @@ def render_header_cards(headers_df: pd.DataFrame):
             detected_label = "Sim" if bool(row.get("extrato_estrangeiro_detectado", False)) else "Não"
             foreign_chip = f"<span class='ce-chip2'>Estrangeiro detectado: {html.escape(detected_label)}</span>"
 
+        ocr_chip = ""
+        if "ocr_aplicado" in row.index and bool(row.get("ocr_aplicado", False)):
+            ocr_chip = "<span class='ce-chip2'>OCR aplicado: Sim</span>"
+        elif "ocr_erro" in row.index and str(row.get("ocr_erro", "") or "").strip():
+            ocr_chip = "<span class='ce-chip2'>OCR: falhou/indisponivel</span>"
+
         periodo_chip = f"<span class='ce-chip2'>Período: {periodo}</span>" if periodo else ""
 
         st.markdown(
@@ -484,6 +491,7 @@ def render_header_cards(headers_df: pd.DataFrame):
               </div>
               <div class="ce-chipline">
                 {foreign_chip}
+                {ocr_chip}
                 {periodo_chip}
               </div>
             </div>
@@ -597,6 +605,24 @@ def _chips_html(values: list[str]) -> str:
     return f"<div class='ce-chipline'>{chips}</div>"
 
 
+@st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
+def _inspect_uploaded_pdf(filename: str, file_bytes: bytes) -> PDFContentStats:
+    return inspect_pdf_bytes(file_bytes, filename)
+
+
+def _collect_ocr_candidates(uploaded_files) -> list[PDFContentStats]:
+    candidates: list[PDFContentStats] = []
+    for uploaded_file in uploaded_files or []:
+        try:
+            stats = _inspect_uploaded_pdf(uploaded_file.name, uploaded_file.getvalue())
+        except Exception as exc:
+            logger.warning("Falha ao inspecionar PDF antes do processamento: %s", type(exc).__name__)
+            continue
+        if stats.is_ocr_candidate:
+            candidates.append(stats)
+    return candidates
+
+
 if "analysis_result" not in st.session_state:
     st.session_state["analysis_result"] = None
 if "manual_overrides" not in st.session_state:
@@ -610,6 +636,8 @@ if "custom_names_list" not in st.session_state:
 if "custom_terms_list" not in st.session_state:
     st.session_state["custom_terms_list"] = []
 
+ocr_candidate_stats: list[PDFContentStats] = []
+
 with st.sidebar:
     st.header("Parâmetros")
     uploaded_files = st.file_uploader(
@@ -618,6 +646,17 @@ with st.sidebar:
         accept_multiple_files=True,
         help="O app tenta interpretar diferentes layouts de extratos bancários.",
     )
+
+    ocr_candidate_stats = _collect_ocr_candidates(uploaded_files)
+    if ocr_candidate_stats:
+        candidate_names = ", ".join(stats.filename for stats in ocr_candidate_stats[:3])
+        if len(ocr_candidate_stats) > 3:
+            candidate_names += f" e mais {len(ocr_candidate_stats) - 3}"
+        st.warning(
+            "PDF sem tabela selecionavel detectado. Se a leitura normal nao encontrar "
+            f"movimentacoes, o app vai transcrever a imagem por OCR: {candidate_names}. "
+            "Isso pode demorar um pouco mais."
+        )
 
     st.markdown("**Nomes de pessoas/empresas para desconsiderar**")
     st.caption("Digite e pressione Enter (ou clique fora) para adicionar. Aceita separar por vírgula ou ponto e vírgula.")
@@ -700,6 +739,15 @@ if process:
         previous_base = ensure_row_ids(ensure_transaction_keys(previous_result["transactions"]))
         previous_overrides = normalize_manual_overrides(previous_overrides, previous_base)
 
+    processing_status = st.empty()
+    if ocr_candidate_stats:
+        processing_status.warning(
+            "PDF sem tabela selecionavel detectado. O OCR sera usado apenas se a leitura normal nao encontrar movimentacoes."
+        )
+
+    def update_processing_status(message: str) -> None:
+        processing_status.warning(message)
+
     with st.spinner("Processando PDFs e consolidando a análise..."):
         new_result = analyze_uploaded_files(
             uploaded_files=uploaded_files,
@@ -707,6 +755,7 @@ if process:
             custom_names_raw=custom_names_raw,
             flexible_names=flexible_names,
             include_holder_in_exclusions=include_holder_in_exclusions,
+            status_callback=update_processing_status,
         )
         st.session_state["analysis_result"] = new_result
         new_base = ensure_row_ids(ensure_transaction_keys(new_result["transactions"]))
@@ -715,6 +764,7 @@ if process:
         detected_foreign = bool(st.session_state["analysis_result"].get("foreign_detected"))
         st.session_state["foreign_statement_choice"] = "Sim" if detected_foreign else "Nao"
         st.session_state["foreign_currency"] = None
+    processing_status.empty()
 
 result = st.session_state.get("analysis_result")
 
@@ -732,6 +782,14 @@ if result:
         )
         with st.expander(f"Erros de processamento ({len(errors_df)})", expanded=False):
             st.dataframe(errors_df, use_container_width=True, hide_index=True)
+
+    if "ocr_aplicado" in headers_df.columns:
+        ocr_applied = headers_df[headers_df["ocr_aplicado"].fillna(False).astype(bool)]
+        if not ocr_applied.empty:
+            names = ", ".join(str(name) for name in ocr_applied["arquivo"].head(3).tolist())
+            if len(ocr_applied) > 3:
+                names += f" e mais {len(ocr_applied) - 3}"
+            st.info(f"OCR aplicado em PDF sem tabela selecionavel: {names}. Revise as movimentacoes extraidas.")
 
     render_section_header("Cabeçalho dos extratos", subtitle="Dados detectados no PDF (banco, titular, conta, período).")
     render_header_cards(headers_df)
