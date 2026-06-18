@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from .utils import expand_name_tokens, fold_text, normalize_text
+from .utils import fold_text, normalize_text
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "exclusion_terms_default.json"
 DEFAULT_TERMS = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))["default_terms"]
 
 
-def build_exclusion_terms(custom_terms: list[str], custom_names: list[str], flexible_names: bool = True) -> list[str]:
+def build_exclusion_terms(custom_terms: list[str], custom_names: list[str]) -> list[str]:
     results = list(DEFAULT_TERMS)
 
     for term in custom_terms:
@@ -22,15 +22,8 @@ def build_exclusion_terms(custom_terms: list[str], custom_names: list[str], flex
 
     for name in custom_names:
         cleaned = normalize_text(name)
-        if not cleaned:
-            continue
-
-        if flexible_names:
-            results.extend(expand_name_tokens(cleaned))
-        else:
-            tokens = expand_name_tokens(cleaned)
-            stronger = [token for token in tokens if len(token.split()) >= 2 or len(token) >= len(cleaned) - 2]
-            results.extend(stronger or [cleaned])
+        if cleaned:
+            results.append(cleaned)
 
     unique = sorted({fold_text(term) for term in results if term}, key=len, reverse=True)
     return unique
@@ -63,7 +56,6 @@ def apply_exclusion_rules(
     df: pd.DataFrame,
     custom_terms: list[str],
     custom_names: list[str],
-    flexible_names: bool = True,
 ) -> pd.DataFrame:
     if df.empty:
         result = df.copy()
@@ -71,7 +63,7 @@ def apply_exclusion_rules(
             result[col] = []
         return result
 
-    exclusion_terms = build_exclusion_terms(custom_terms, custom_names, flexible_names)
+    exclusion_terms = build_exclusion_terms(custom_terms, custom_names)
 
     result = df.copy()
     final_status = []

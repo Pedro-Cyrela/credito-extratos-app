@@ -29,6 +29,7 @@ from src.manual_overrides import (
 )
 from src.monthly_summary import calculate_global_metrics
 from src.pdf_reader import PDFContentStats, inspect_pdf_bytes
+from src.ui_state import initialize_holder_first_name
 from src.utils import split_user_terms
 
 try:
@@ -635,8 +636,7 @@ if "custom_names_list" not in st.session_state:
     st.session_state["custom_names_list"] = []
 if "custom_terms_list" not in st.session_state:
     st.session_state["custom_terms_list"] = []
-if "flexible_names" not in st.session_state:
-    st.session_state["flexible_names"] = True
+initialize_holder_first_name(st.session_state)
 if "include_holder_in_exclusions" not in st.session_state:
     st.session_state["include_holder_in_exclusions"] = True
 
@@ -693,10 +693,10 @@ with st.sidebar:
     custom_names_raw = "\n".join(st.session_state.get("custom_names_list", []))
     custom_terms_raw = "\n".join(st.session_state.get("custom_terms_list", []))
 
-    flexible_names = st.toggle(
-        "Aplicar nomes com correspondência flexível",
-        key="flexible_names",
-        help="Quando ativo, o motor usa tokens do nome, como primeiro nome e combinações parciais, inclusive cortes comuns do primeiro nome.",
+    include_holder_first_name = st.toggle(
+        "Desconsiderar movimentações com o primeiro nome do titular",
+        key="include_holder_first_name",
+        help="Quando ativo, o app extrai o texto antes do primeiro espaço no nome do titular e desconsidera descrições que contenham esse primeiro nome como palavra inteira.",
     )
 
     include_holder_in_exclusions = st.toggle(
@@ -724,6 +724,7 @@ with st.sidebar:
             "custom_names_list",
             "custom_terms_list",
             "flexible_names",
+            "include_holder_first_name",
             "include_holder_in_exclusions",
             "considered_editor",
             "disregarded_editor",
@@ -759,7 +760,7 @@ if process:
             uploaded_files=uploaded_files,
             custom_terms_raw=custom_terms_raw,
             custom_names_raw=custom_names_raw,
-            flexible_names=flexible_names,
+            include_holder_first_name=include_holder_first_name,
             include_holder_in_exclusions=include_holder_in_exclusions,
             status_callback=update_processing_status,
         )

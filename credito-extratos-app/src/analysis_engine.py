@@ -22,13 +22,32 @@ from .transaction_parser import (
     parse_transaction_tables,
     parse_transactions_from_text,
 )
-from .utils import normalize_text, split_user_terms
+from .utils import fold_text, normalize_text, split_user_terms
 
 logger = logging.getLogger(__name__)
 
 
 ERROR_COLUMNS = ["arquivo", "etapa", "erro"]
 StatusCallback = Callable[[str], None]
+
+
+def _build_holder_first_name_rules(holder_names: list[str]) -> list[str]:
+    rules: list[str] = []
+    seen: set[str] = set()
+
+    for holder in holder_names:
+        cleaned = normalize_text(holder)
+        first_name = cleaned.split(maxsplit=1)[0] if cleaned else ""
+        if not first_name:
+            continue
+
+        rule = f"word:{first_name}"
+        folded_rule = fold_text(rule)
+        if folded_rule not in seen:
+            rules.append(rule)
+            seen.add(folded_rule)
+
+    return rules
 
 
 def _ensure_transaction_schema(df: pd.DataFrame) -> pd.DataFrame:
@@ -217,7 +236,7 @@ def analyze_uploaded_files(
     uploaded_files,
     custom_terms_raw: str,
     custom_names_raw: str,
-    flexible_names: bool = True,
+    include_holder_first_name: bool = False,
     include_holder_in_exclusions: bool = False,
     status_callback: StatusCallback | None = None,
 ) -> dict:
@@ -247,6 +266,14 @@ def analyze_uploaded_files(
                 custom_names.append(cleaned)
                 existing.add(cleaned)
 
+    rule_terms = list(custom_terms)
+    if include_holder_first_name:
+        existing_terms = {fold_text(term) for term in rule_terms if normalize_text(term)}
+        for first_name_rule in _build_holder_first_name_rules(auto_holder_names):
+            if fold_text(first_name_rule) not in existing_terms:
+                rule_terms.append(first_name_rule)
+                existing_terms.add(fold_text(first_name_rule))
+
     transactions_df = (
         pd.concat(transaction_frames, ignore_index=True)
         if transaction_frames
@@ -254,9 +281,7 @@ def analyze_uploaded_files(
     )
     transactions_df = _ensure_transaction_schema(transactions_df)
     transactions_df = deduplicate_transactions(transactions_df)
-    final_df = apply_exclusion_rules(
-        transactions_df, custom_terms, custom_names, flexible_names=flexible_names
-    )
+    final_df = apply_exclusion_rules(transactions_df, rule_terms, custom_names)
     final_df = _ensure_transaction_schema(final_df)
 
     summary_df = build_monthly_summary(final_df)

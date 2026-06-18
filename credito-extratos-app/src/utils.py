@@ -215,32 +215,6 @@ def split_user_terms(raw_text: str) -> list[str]:
     return [normalize_text(p) for p in parts if normalize_text(p)]
 
 
-def expand_name_tokens(name: str) -> list[str]:
-    text = fold_text(name)
-    tokens = [t for t in re.split(r"\s+", text) if len(t) >= 3]
-    results = set(tokens)
-
-    if tokens:
-        first_token = tokens[0]
-        results.update(_build_prefix_variants(first_token))
-
-    if len(tokens) >= 2:
-        results.add(" ".join(tokens[:2]))
-    if len(tokens) >= 3:
-        results.add(" ".join(tokens[:3]))
-    results.add(text)
-    return sorted(results, key=len, reverse=True)
-
-
-def _build_prefix_variants(token: str) -> set[str]:
-    variants = {token}
-    if len(token) >= 7:
-        variants.add(token[:-1])
-    if len(token) >= 8:
-        variants.add(token[:-2])
-    return {variant for variant in variants if len(variant) >= 5}
-
-
 def safe_float_sum(series: pd.Series) -> float:
     if series.empty:
         return 0.0
