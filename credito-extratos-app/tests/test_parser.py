@@ -360,6 +360,29 @@ def test_parse_transactions_from_nubank_skips_total_out_headers_and_daily_balanc
     assert boleto["tipo_inferido"] == "debito"
 
 
+def test_parse_transactions_from_nubank_skips_monthly_total_summary_between_pages():
+    text_pages = [
+        (
+            "THAINA SILVA ALVES DA COSTA\n"
+            "MovimentaÃƒÂ§ÃƒÂµes\n"
+            "30 ABR 2026 Total de entradas + 15,66\n"
+            "CrÃƒÂ©dito em conta 15,66\n"
+        ),
+        (
+            "R$ 12,23 Total de entradas +14.804,62\n"
+            "Total de saÃƒÂ­das -14.792,39\n"
+            "04 MAI 2026 Total de entradas + 20,99\n"
+            "CrÃƒÂ©dito em conta 20,99\n"
+        ),
+    ]
+
+    result = parse_transactions_from_text(text_pages, "nubank.pdf")
+
+    assert len(result) == 2
+    assert not result["descricao"].str.contains("Total de entradas", case=False, regex=False).any()
+    assert result["valor"].tolist() == [15.66, 20.99]
+
+
 def test_parse_transactions_from_inter_daily_statement():
     text_pages = [
         (

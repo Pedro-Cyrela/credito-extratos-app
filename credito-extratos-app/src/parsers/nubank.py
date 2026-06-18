@@ -61,6 +61,11 @@ def _is_skip_line(line: str) -> bool:
     return any(pattern.search(line) for pattern in NUBANK_SKIP_PATTERNS)
 
 
+def _is_aggregate_total_line(line: str) -> bool:
+    folded = fold_text(line)
+    return "total de entradas" in folded or "total de sa" in folded
+
+
 def _parse_day(line: str) -> pd.Timestamp | None:
     match = NUBANK_DAY_PATTERN.match(line)
     if not match:
@@ -242,6 +247,12 @@ class NubankParser:
                     if current_date is not None:
                         current_section = "saidas"
                         pending_day = None
+                    continue
+
+                # Resumos mensais podem trazer saldo e total na mesma linha,
+                # por exemplo: "R$ 12,23 Total de entradas +14.804,62".
+                # Eles não são lançamentos e não devem herdar a última data.
+                if _is_aggregate_total_line(line):
                     continue
 
                 if current_date is None or current_section is None:
