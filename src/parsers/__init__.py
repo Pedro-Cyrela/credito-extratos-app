@@ -26,11 +26,11 @@ from .base import (
 from .bradesco import BradescoParser
 from .c6 import C6Parser
 from .eagle import EagleBrokerParser
-from .santander import SantanderParser
 from .generic_table import parse_transaction_tables
 from .generic_text import parse_generic_text
 from .inter import InterParser
 from .nubank import NubankParser
+from .santander import SantanderParser
 from .wise import WiseParser, looks_like_wise
 
 logger = logging.getLogger(__name__)

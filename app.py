@@ -476,6 +476,7 @@ def render_header_cards(headers_df: pd.DataFrame):
             ocr_chip = "<span class='ce-chip2'>OCR: falhou/indisponivel</span>"
 
         periodo_chip = f"<span class='ce-chip2'>Período: {periodo}</span>" if periodo else ""
+        chips_html = "".join([foreign_chip, ocr_chip, periodo_chip])
 
         st.markdown(
             f"""
@@ -491,9 +492,7 @@ def render_header_cards(headers_df: pd.DataFrame):
                 <div><div class="ce-section-kicker">Agência</div><div style="font-weight:700;">{agencia}</div></div>
               </div>
               <div class="ce-chipline">
-                {foreign_chip}
-                {ocr_chip}
-                {periodo_chip}
+                {chips_html}
               </div>
             </div>
             """,

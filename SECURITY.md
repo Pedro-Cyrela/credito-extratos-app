@@ -25,10 +25,11 @@ responsabilidades do analista que opera a ferramenta.
 - **Não há chamada externa com PII.** A única chamada de rede do app é à API
   PTAX do BCB (`olinda.bcb.gov.br`) para buscar cotação de moeda — não envia
   nenhum dado de transação ou titular, apenas código de moeda e data.
-- **Não há telemetria.** `.streamlit/config.toml` desabilita
-  `gatherUsageStats`.
-- **Não é publicado.** O app foi configurado para rodar em `localhost` ou em
-  servidor interno da organização, nunca em provedor público.
+- **O código do aplicativo não implementa telemetria própria.** Métricas da
+  plataforma de hospedagem seguem a configuração e a política do provedor.
+- **O ambiente de hospedagem deve ser considerado no controle de acesso.**
+  A visibilidade do aplicativo e os usuários autorizados devem ser configurados
+  na plataforma em que ele estiver publicado.
 
 ## O que os logs registram
 
@@ -50,15 +51,14 @@ agência, CPF/CNPJ, conteúdo bruto do PDF.
    política interna de retenção (ex.: deletar após o caso ser arquivado).
 2. **Encerre a sessão** ao terminar a análise — botão "Encerrar análise /
    limpar sessão" na sidebar limpa todas as transações da memória.
-3. **Não compartilhe a URL** quando rodando em servidor interno; quem abrir o
-   link vê os mesmos PDFs/dados que você (Streamlit não tem login nativo).
-4. **Se a máquina é compartilhada**, feche o navegador e o terminal do
-   Streamlit ao final do plantão para invalidar a sessão.
+3. **Não compartilhe o acesso** com pessoas que não estejam autorizadas a
+   tratar os documentos analisados.
+4. **Em máquinas compartilhadas**, encerre a sessão e feche o navegador ao
+   final do uso.
 
-## Operação em servidor interno (opcional)
+## Hospedagem e controle de acesso
 
-Quando o app passar a rodar num servidor da organização em vez de em
-`localhost`, recomenda-se:
+Para ambientes corporativos, recomenda-se:
 
 - Reverse proxy com SSO (Azure AD / Entra ID) na frente do Streamlit.
 - HTTPS interno via certificado da PKI corporativa.
