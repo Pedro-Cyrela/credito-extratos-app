@@ -25,6 +25,7 @@ from .base import (
 )
 from .bradesco import BradescoParser
 from .c6 import C6Parser
+from .cora import CoraParser
 from .eagle import EagleBrokerParser
 from .generic_table import parse_transaction_tables
 from .generic_text import parse_generic_text
@@ -44,6 +45,7 @@ BANK_PARSERS: tuple[BankParser, ...] = (
     InterParser(),
     NubankParser(),
     C6Parser(),
+    CoraParser(),
     BankOfAmericaParser(),
     SantanderParser(),
 )

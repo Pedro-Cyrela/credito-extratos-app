@@ -145,6 +145,8 @@ def _detect_bank(header_text: str, first_page: str) -> str:
         return _BANK_DISPLAY_BY_ALIAS.get("banco inter", "Inter")
     if re.search(r"\bbtg\b", folded_header) and "btg pactual" in folded_header:
         return _BANK_DISPLAY_BY_ALIAS.get("btg pactual", "BTG Pactual")
+    if "cora scfi" in folded_header:
+        return _BANK_DISPLAY_BY_ALIAS.get("cora scfi", "Cora")
     return ""
 
 
@@ -250,6 +252,7 @@ def _extract_period(header_text: str) -> str:
     patterns = [
         r"movimentacao entre\s*:\s*(\d{2}/\d{2}/\d{4}\s+e\s+\d{2}/\d{2}/\d{4})",
         r"periodo\s*:\s*(\d{2}/\d{2}/\d{4}\s+a\s+\d{2}/\d{2}/\d{4})",
+        r"per\S*odo\s+(\d{2}/\d{2}/\d{4}\s+a\s+\d{2}/\d{2}/\d{4})",
         r"extrato\s+per\S*odo\s*\S*\s*(\d{1,2}\s+de\s+[a-z]+\s+de\s+\d{4}\s+at\S*\s+\d{1,2}\s+de\s+[a-z]+\s+de\s+\d{4})",
     ]
     for pattern in patterns:
@@ -273,9 +276,13 @@ def _looks_like_holder_name(value: str) -> bool:
     if not candidate:
         return False
 
-    tokens = [token for token in candidate.split() if len(token) >= 2]
-    if len(tokens) < 2:
+    all_tokens = candidate.split()
+    meaningful_tokens = [t for t in all_tokens if len(t) >= 2]
+    # Aceita nomes com iniciais (ex: "R J J SERVICOS"): basta ter >= 2 tokens
+    # no total e pelo menos 1 token substantivo (len >= 2).
+    if len(all_tokens) < 2 or not meaningful_tokens:
         return False
+    tokens = meaningful_tokens
 
     forbidden_terms = {
         "banco",

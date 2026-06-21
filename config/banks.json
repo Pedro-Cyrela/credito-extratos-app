@@ -80,6 +80,11 @@
       "display": "Wise",
       "aliases": ["wise payments ltd.", "wise"],
       "foreign": true
+    },
+    {
+      "key": "cora",
+      "display": "Cora",
+      "aliases": ["cora scfi", "cora"]
     }
   ]
 }
