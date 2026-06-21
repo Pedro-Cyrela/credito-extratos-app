@@ -30,6 +30,7 @@ from .eagle import EagleBrokerParser
 from .generic_table import parse_transaction_tables
 from .generic_text import parse_generic_text
 from .inter import InterParser
+from .itau_mensal import ItauMensalParser
 from .nubank import NubankParser
 from .santander import SantanderParser
 from .wise import WiseParser, looks_like_wise
@@ -43,6 +44,7 @@ BANK_PARSERS: tuple[BankParser, ...] = (
     BancoBrasilParser(),
     EagleBrokerParser(),
     InterParser(),
+    ItauMensalParser(),
     NubankParser(),
     C6Parser(),
     CoraParser(),

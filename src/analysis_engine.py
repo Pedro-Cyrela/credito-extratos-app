@@ -259,12 +259,12 @@ def analyze_uploaded_files(
         transaction_frames.append(combined)
 
     if include_holder_in_exclusions and auto_holder_names:
-        existing = {normalize_text(name) for name in custom_names if normalize_text(name)}
+        existing = {fold_text(name) for name in custom_names if normalize_text(name)}
         for holder in auto_holder_names:
             cleaned = normalize_text(holder)
-            if cleaned and cleaned not in existing:
+            if cleaned and fold_text(cleaned) not in existing:
                 custom_names.append(cleaned)
-                existing.add(cleaned)
+                existing.add(fold_text(cleaned))
 
     rule_terms = list(custom_terms)
     if include_holder_first_name:

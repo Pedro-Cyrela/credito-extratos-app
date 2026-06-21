@@ -335,6 +335,73 @@ def _word_rows(rows):
     return words
 
 
+def test_parse_itau_monthly_statement_uses_entry_and_exit_columns():
+    text_pages = [
+        (
+            "Itaú\n"
+            "Ag 1234 Conta 56789-0\n"
+            "Extrato Mensal Abril 2026\n"
+            "Data Descrição Entradas Saídas Saldo\n"
+        )
+    ]
+    word_pages = [
+        _word_rows(
+            [
+                [("Data", 100), ("Descrição", 200), ("Entradas", 370), ("Saídas", 430), ("Saldo", 540)],
+                [("02/04", 100), ("PIX", 200), ("RECEBIDO", 225), ("1.250,75", 370), ("1.250,75", 540)],
+                [("03/04", 100), ("PAGAMENTO", 200), ("BOLETO", 250), ("250,30", 430), ("1.000,45", 540)],
+            ]
+        )
+    ]
+
+    result = parse_transactions_from_text(text_pages, "itau.pdf", word_pages)
+
+    assert len(result) == 2
+    credit = result[result["descricao"] == "PIX RECEBIDO"].iloc[0]
+    debit = result[result["descricao"] == "PAGAMENTO BOLETO"].iloc[0]
+    assert credit["data"].strftime("%Y-%m-%d") == "2026-04-02"
+    assert credit["valor"] == 1250.75
+    assert credit["tipo_inferido"] == "credito"
+    assert debit["data"].strftime("%Y-%m-%d") == "2026-04-03"
+    assert debit["valor"] == -250.30
+    assert debit["tipo_inferido"] == "debito"
+
+
+def test_parse_itau_monthly_statement_ignores_balances_and_repeated_footer():
+    text_pages = [
+        (
+            "Itaú\n"
+            "Agência 1234\n"
+            "Extrato Mensal Abril 2026\n"
+            "Data Descrição Entradas Saídas Saldo\n"
+        )
+    ]
+    word_pages = [
+        _word_rows(
+            [
+                [("Data", 100), ("Descrição", 200), ("Entradas", 370), ("Saídas", 430), ("Saldo", 540)],
+                [("02/04", 100), ("PIX", 200), ("CLIENTE", 225), ("600,00", 370), ("600,00", 540)],
+                [("Saldo", 200), ("Aplic", 225), ("Aut", 250), ("Mais", 275), ("999,00", 370)],
+                [
+                    ("Conta", 200),
+                    ("Corrente", 230),
+                    (">", 285),
+                    ("Extrato", 300),
+                    ("Mensal", 330),
+                    ("428149", 370),
+                    ("06/05/2026", 430),
+                ],
+            ]
+        )
+    ]
+
+    result = parse_transactions_from_text(text_pages, "itau.pdf", word_pages)
+
+    assert len(result) == 1
+    assert result.iloc[0]["descricao"] == "PIX CLIENTE"
+    assert result.iloc[0]["valor"] == 600.0
+
+
 def test_parse_transactions_from_nubank_skips_total_out_headers_and_daily_balances():
     text_pages = [
         (

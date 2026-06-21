@@ -30,7 +30,7 @@ from src.manual_overrides import (
 from src.monthly_summary import calculate_global_metrics
 from src.pdf_reader import PDFContentStats, inspect_pdf_bytes
 from src.ui_state import initialize_holder_first_name
-from src.utils import split_user_terms
+from src.utils import fold_text, split_user_terms
 
 try:
     from fpdf import FPDF  # noqa: F401
@@ -589,12 +589,12 @@ def _add_sidebar_terms(list_key: str, input_key: str):
     if not terms:
         return
     selected = st.session_state.setdefault(list_key, [])
-    existing = {term.lower() for term in selected}
+    existing = {fold_text(term) for term in selected}
     for term in terms:
-        if term.lower() in existing:
+        if fold_text(term) in existing:
             continue
         selected.append(term)
-        existing.add(term.lower())
+        existing.add(fold_text(term))
     st.session_state[input_key] = ""
 
 
