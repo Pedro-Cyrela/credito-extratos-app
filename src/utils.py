@@ -32,6 +32,7 @@ AMOUNT_PATTERN = re.compile(
     """,
     flags=re.IGNORECASE | re.VERBOSE,
 )
+ILLEGAL_XML_CONTROL_CHARACTERS_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
 
 @dataclass(frozen=True)
@@ -44,10 +45,15 @@ class AmountMatch:
     end: int
 
 
-def normalize_text(value: object) -> str:
+def sanitize_text(value: object) -> str:
+    """Remove control characters rejected by XML-based exports such as XLSX."""
     if value is None:
         return ""
-    text = str(value).strip()
+    return ILLEGAL_XML_CONTROL_CHARACTERS_RE.sub("", str(value))
+
+
+def normalize_text(value: object) -> str:
+    text = sanitize_text(value).strip()
     text = text.replace("\xa0", " ")
     text = re.sub(r"\s+", " ", text)
     return text
@@ -193,6 +199,10 @@ def to_excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
             for col in export_df.columns:
                 if pd.api.types.is_float_dtype(export_df[col]):
                     export_df[col] = export_df[col].apply(_format_float_ptbr)
+                else:
+                    export_df[col] = export_df[col].map(
+                        lambda value: sanitize_text(value) if isinstance(value, str) else value
+                    )
             export_df.to_excel(writer, sheet_name=safe_name, index=False)
     buffer.seek(0)
     return buffer.read()

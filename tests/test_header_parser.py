@@ -138,3 +138,24 @@ def test_parse_header_handles_inter_holder_above_cpf_cnpj_line():
     assert header.account_holder == "LETICIA JOANNI MATTEDI"
     assert header.agency == "0001-9"
     assert header.account_number == "18866265-0"
+
+
+def test_parse_header_handles_xp_conta_digital_metadata():
+    text_pages = [
+        (
+            "22/06/2026 19:08:59 Conta Digital XP | Extrato\n"
+            "Conta Digital Extrato\n"
+            "Data da consulta: 22/06/2026 19:08:59\n"
+            "CLIENTE EXEMPLO Banco XP S.A | Agencia: 0001 | Conta: 12345678\n"
+            "Documento: 000.000.000-00 De: 24/03/2026 Ate: 22/06/2026\n"
+            "Data Descricao Valor Saldo\n"
+        )
+    ]
+
+    header = parse_header(text_pages)
+
+    assert header.bank_name == "Banco XP"
+    assert header.account_holder == "CLIENTE EXEMPLO"
+    assert header.agency == "0001"
+    assert header.account_number == "12345678"
+    assert header.statement_period == "24/03/2026 a 22/06/2026"

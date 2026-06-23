@@ -34,12 +34,14 @@ from .itau_mensal import ItauMensalParser
 from .nubank import NubankParser
 from .santander import SantanderParser
 from .wise import WiseParser, looks_like_wise
+from .xp import XPContaDigitalParser
 
 logger = logging.getLogger(__name__)
 
 
 BANK_PARSERS: tuple[BankParser, ...] = (
     WiseParser(),
+    XPContaDigitalParser(),
     BradescoParser(),
     BancoBrasilParser(),
     EagleBrokerParser(),

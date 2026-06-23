@@ -6,6 +6,11 @@
       "aliases": ["bank of america", "bofa"]
     },
     {
+      "key": "xp",
+      "display": "Banco XP",
+      "aliases": ["banco xp", "conta digital xp", "xp s.a", "xpi.com.br"]
+    },
+    {
       "key": "itau",
       "display": "Itaú",
       "aliases": ["itau", "itaú", "itau unibanco", "itaú unibanco"]

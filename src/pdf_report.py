@@ -7,6 +7,7 @@ from unidecode import unidecode
 
 from . import get_version_label
 from .fx_ptax import FxQuote
+from .utils import sanitize_text
 
 
 def _brl(value: float) -> str:
@@ -32,7 +33,7 @@ def _format_date(value) -> str:
 def _pdf_text(value) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
-    text = str(value)
+    text = sanitize_text(value)
     text = (
         text.replace("\u2014", "-")  # em dash
         .replace("\u2013", "-")  # en dash

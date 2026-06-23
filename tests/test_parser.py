@@ -574,3 +574,35 @@ def test_parse_santander_cdb_transaction_does_not_end_movement_section():
     assert (result["descricao"] == "RESGATE CDB/RDB -").any()
     boleto = result[result["descricao"].str.contains("CLAUDIO MORAIS", regex=False)].iloc[0]
     assert boleto["valor"] == -1033.0
+
+
+def test_parse_xp_conta_digital_ignores_query_header_and_sanitizes_control_characters():
+    text_pages = [
+        (
+            "22/06/2026 19:08:59 Conta Digital XP | Extrato\n"
+            "Conta Digital Extrato\n"
+            "Data da consulta: 22/06/2026 19:08:59\n"
+            "CLIENTE EXEMPLO Banco XP S.A | Agencia: 0001 | Conta: 12345678\n"
+            "Documento: 000.000.000-00 De: 24/03/2026 Ate: 22/06/2026\n"
+            "Saldo disponivel no final do periodo filtrado: R$ 6.062,51\n"
+            "Data Descricao Valor Saldo\n"
+            "22/06/26 \u00e0s 15:39:08 Pix recebido de Cliente Te\x00te R$ 2.900,00 R$ 6.062,51\n"
+            "22/06/26 \u00e0s 15:12:03 Pix enviado para Ministerio da Fazenda -R$ 1.436,40 R$ 3.154,51\n"
+            "22/06/26 \u00e0s 14:00:00 R$ 91,00 R$ 3.245,51\n"
+        )
+    ]
+
+    result = parse_transactions_from_text(text_pages, "xp.pdf")
+
+    assert len(result) == 3
+    assert not result["descricao"].str.contains("Data da consulta", regex=False).any()
+    assert result.iloc[0]["descricao"].find("\x00") == -1
+
+    received = result[result["valor"] == 2900.0].iloc[0]
+    assert received["descricao"] == "\u00e0s 15:39:08 Pix recebido de Cliente Tete"
+
+    sent = result[result["valor"] == -1436.4].iloc[0]
+    assert sent["tipo_inferido"] == "debito"
+
+    blank_description = result[result["valor"] == 91.0].iloc[0]
+    assert blank_description["descricao"] == "\u00e0s 14:00:00 Movimentacao sem descricao"

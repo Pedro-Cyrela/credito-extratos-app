@@ -63,6 +63,12 @@ SANTANDER_AGENCY_ACCOUNT_PATTERN = re.compile(
     r"^(?P<name>[A-ZÀ-ÿ][A-ZÀ-ÿ ]{5,}?)\s+Ag[eê]ncia\s+e\s+Conta\s*:\s*(?P<agency>\d{3,6})\s*/\s*(?P<account>[\d\.\-xX/]+)\s*$",
     flags=re.IGNORECASE | re.MULTILINE,
 )
+XP_AGENCY_ACCOUNT_PATTERN = re.compile(
+    r"^(?P<name>.+?)\s+Banco XP S\.?\s*A\.?\s*\|\s*"
+    r"Ag\S*ncia\s*:\s*(?P<agency>[\d\-]+)\s*\|\s*"
+    r"Conta\s*:\s*(?P<account>[\d\.\-xX/]+)\s*$",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
 
 
 def parse_header(text_pages: list[str]) -> HeaderInfo:
@@ -72,8 +78,13 @@ def parse_header(text_pages: list[str]) -> HeaderInfo:
     info = HeaderInfo()
     info.bank_name = _detect_bank(header_text, first_page)
 
+    xp_candidate = XP_AGENCY_ACCOUNT_PATTERN.search(header_text or first_page)
     santander_candidate = SANTANDER_AGENCY_ACCOUNT_PATTERN.search(header_text or first_page)
-    if santander_candidate:
+    if xp_candidate:
+        info.account_holder = normalize_text(xp_candidate.group("name"))
+        info.agency = normalize_text(xp_candidate.group("agency"))
+        info.account_number = normalize_text(xp_candidate.group("account"))
+    elif santander_candidate:
         info.account_holder = normalize_text(santander_candidate.group("name"))
         info.agency = normalize_text(santander_candidate.group("agency"))
         info.account_number = normalize_text(santander_candidate.group("account"))
@@ -248,6 +259,14 @@ def _extract_account(header_text: str) -> str:
 
 def _extract_period(header_text: str) -> str:
     folded = fold_text(header_text)
+
+    xp_period = re.search(
+        r"\bde\s*:\s*(\d{2}/\d{2}/\d{4})\s+ate\s*:\s*(\d{2}/\d{2}/\d{4})",
+        folded,
+        flags=re.IGNORECASE,
+    )
+    if xp_period:
+        return f"{xp_period.group(1)} a {xp_period.group(2)}"
 
     patterns = [
         r"movimentacao entre\s*:\s*(\d{2}/\d{2}/\d{4}\s+e\s+\d{2}/\d{2}/\d{4})",
