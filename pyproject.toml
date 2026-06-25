@@ -7,7 +7,7 @@ name = "credito-extratos"
 version = "1.0.0"
 description = "Analise de renda/credito a partir de extratos bancarios em PDF (uso interno)."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 authors = [
     { name = "Pedro Lopes", email = "Pedro.Lopes@rjzcyrela.com.br" }
 ]

@@ -32,6 +32,11 @@ Aplicação para análise de renda e crédito a partir de extratos bancários em
 
 Outros layouts podem ser processados pelos mecanismos genéricos de leitura de tabelas e texto.
 
+## Execução e deploy
+
+- Use Python 3.11 ou 3.12. O pacote `rapidocr-onnxruntime`, usado no OCR, ainda não é compatível com Python 3.13.
+- No Streamlit Community Cloud, mantenha a versão do Python do app em 3.12 ou 3.11 nas configurações avançadas do deploy.
+
 ## Tratamento dos dados
 
 - Os documentos são processados durante a sessão.
