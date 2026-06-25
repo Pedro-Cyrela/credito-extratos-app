@@ -576,6 +576,55 @@ def test_parse_santander_cdb_transaction_does_not_end_movement_section():
     assert boleto["valor"] == -1033.0
 
 
+def test_parse_santander_does_not_reopen_investment_movements_after_account_section():
+    text_pages = [
+        (
+            "EXTRATO CONSOLIDADO INTELIGENTE\n"
+            "maio/2026\n"
+            "Conta Corrente\n"
+            "Movimentação\n"
+            "Data Descrição Nº Documento Movimento (R$) Saldo (R$)\n"
+            "29/05 PIX RECEBIDO - 463,05\n"
+            "CELIANE MOTA DE OLIVEIRA\n"
+            "SALDO EM 31/05 763,93\n"
+            "Saldos por Período\n"
+        ),
+        (
+            "EXTRATO CONSOLIDADO INTELIGENTE\n"
+            "maio/2026\n"
+            "Investimentos\n"
+            "Tipo de Aplicação Produto Saldo Bruto (R$)\n"
+            "DI ADVANCED 27.027,96\n"
+            "Renda Fixa\n"
+            "CDB / RDB\n"
+            "Movimentação\n"
+            "Data Descrição Valor Principal (R$) Valor Bruto (R$)\n"
+            "31/05 SALDO ATUAL 3.010,00 3.068,83 13,23 3.055,60\n"
+        ),
+        (
+            "EXTRATO CONSOLIDADO INTELIGENTE\n"
+            "maio/2026\n"
+            "Posição Consolidada em Cotas\n"
+            "Movimentação\n"
+            "Quantidade Valor Bruto Valor de IR Valor IOF Taxa Saída Valor Líquido\n"
+            "31/05 SALDO ATUAL 1.236,905442 27.027,96 55,99 15,80 0,00 26.956,17\n"
+            "Resumo\n"
+            "Fundo Saldo em Cotas Valor Bruto (R$)\n"
+            "DI ADVANCED 1.236,905442 27.027,96\n"
+            "TOTAL - 27.027,96\n"
+            "Pacote de Serviços\n"
+            "MOVIMENTACOES DE CONTA SAQUES ilimitado\n"
+        ),
+    ]
+
+    result = parse_transactions_from_text(text_pages, "santander.pdf")
+
+    assert len(result) == 1
+    assert result.iloc[0]["descricao"] == "PIX RECEBIDO - CELIANE MOTA DE OLIVEIRA"
+    assert result.iloc[0]["valor"] == 463.05
+    assert not result["descricao"].str.contains("DI ADVANCED|SALDO ATUAL|TOTAL", regex=True).any()
+
+
 def test_parse_xp_conta_digital_ignores_query_header_and_sanitizes_control_characters():
     text_pages = [
         (

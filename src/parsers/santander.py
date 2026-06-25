@@ -130,6 +130,14 @@ def _is_stop_section(folded: str) -> bool:
     return any(folded.startswith(section) for section in _STOP_SECTIONS)
 
 
+def _is_account_section(folded: str) -> bool:
+    return folded == "conta corrente"
+
+
+def _is_movement_heading(folded: str) -> bool:
+    return folded in {"movimentacao", "movimentacoes"}
+
+
 def _extract_month_year(line: str) -> tuple[int, int] | None:
     match = _MONTH_YEAR_FOLDED.search(fold_text(line))
     if not match:
@@ -284,6 +292,8 @@ class SantanderParser:
         current_date: pd.Timestamp | None = None
         in_transactions: bool = False
         pending_desc: list[str] = []
+        movement_blocked: bool = False
+        in_account_section: bool = False
 
         for page_text in text_pages:
             for raw_line in page_text.splitlines():
@@ -298,21 +308,34 @@ class SantanderParser:
                 month_year = _extract_month_year(line)
                 if month_year is not None:
                     new_month, new_year = month_year
+                    same_month = current_month == new_month and current_year == new_year
                     same_open_month = (
                         in_transactions
-                        and current_month == new_month
-                        and current_year == new_year
+                        and same_month
                     )
                     current_month, current_year = new_month, new_year
-                    if not same_open_month:
+                    if not same_month:
                         current_date = None
                         in_transactions = False
                         pending_desc = []
+                        movement_blocked = False
+                        in_account_section = False
+                    elif not same_open_month:
+                        current_date = None
+                        pending_desc = []
+                    continue
+
+                if _is_account_section(folded):
+                    in_account_section = True
+                    movement_blocked = False
                     continue
 
                 # ── 2. Início da seção de transações ─────────────────────
-                if "movimentacao" in folded:
+                if _is_movement_heading(folded):
+                    if movement_blocked and not in_account_section:
+                        continue
                     in_transactions = True
+                    movement_blocked = False
                     pending_desc = []
                     continue
 
@@ -321,6 +344,8 @@ class SantanderParser:
                     # Emite pendente antes de parar
                     pending_desc = []
                     in_transactions = False
+                    movement_blocked = True
+                    in_account_section = False
                     continue
 
                 if not in_transactions:
